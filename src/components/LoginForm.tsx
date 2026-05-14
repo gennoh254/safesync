@@ -30,14 +30,13 @@ export function AuthForm({ onAuthenticate }: { onAuthenticate: (type: AccountTyp
         const { data, error: signUpError } = await supabase.auth.signUp({
           email,
           password: pin,
-          options: {
-            data: { name, company, user_type: accountType },
-          },
         });
 
         if (signUpError) throw signUpError;
 
         if (data.user) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+
           const { error: profileError } = await supabase.from('profiles').insert({
             id: data.user.id,
             name,
@@ -47,6 +46,14 @@ export function AuthForm({ onAuthenticate }: { onAuthenticate: (type: AccountTyp
           });
 
           if (profileError) throw profileError;
+
+          const { error: signInError } = await supabase.auth.signInWithPassword({
+            email,
+            password: pin,
+          });
+
+          if (signInError) throw signInError;
+
           onAuthenticate(accountType);
         }
       } else {
