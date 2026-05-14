@@ -1,4 +1,4 @@
-import { KeyRound, ShieldAlert, User, Mail, Building, AlertCircle, Loader2 } from 'lucide-react';
+import { KeyRound, ShieldAlert, User, Mail, Building, CircleAlert as AlertCircle, Loader as Loader2 } from 'lucide-react';
 import React, { useState } from 'react';
 import { supabase, UserType } from '../lib/supabase';
 
