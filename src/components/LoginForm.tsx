@@ -18,8 +18,8 @@ export function AuthForm({ onAuthenticate }: { onAuthenticate: (type: AccountTyp
     e.preventDefault();
     setError(null);
 
-    if (pin.length !== 4) {
-      setError('PIN must be exactly 4 digits.');
+    if (pin.length < 6) {
+      setError('Password must be at least 6 characters.');
       return;
     }
 
@@ -153,13 +153,12 @@ export function AuthForm({ onAuthenticate }: { onAuthenticate: (type: AccountTyp
         <div className="relative">
           <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
           <input
-            className="w-full h-12 pl-10 pr-4 bg-gray-100 border border-gray-300 text-gray-900 rounded focus:border-red-600 focus:ring-1 focus:ring-red-600 transition-all tracking-widest text-center"
-            placeholder="4-DIGIT PIN"
+            className="w-full h-12 pl-10 pr-4 bg-gray-100 border border-gray-300 text-gray-900 rounded focus:border-red-600 focus:ring-1 focus:ring-red-600 transition-all"
+            placeholder="Password (minimum 6 characters)"
             required
-            maxLength={4}
-            minLength={4}
+            minLength={6}
             value={pin}
-            onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, ''))}
+            onChange={(e) => setPin(e.target.value)}
             type="password"
           />
         </div>

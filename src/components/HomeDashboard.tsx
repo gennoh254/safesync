@@ -1,6 +1,7 @@
-import { ShieldCheck, MapPin, AlertCircle, Settings, Bell, Home, Map as MapIcon, Flame, HeartPulse, Navigation } from 'lucide-react';
+import { ShieldCheck, MapPin, CircleAlert as AlertCircle, Settings, Bell, Hop as Home, Map as MapIcon, Flame, HeartPulse, Navigation } from 'lucide-react';
 import React, { useState } from 'react';
 import { AlertSentDashboard } from './AlertSentDashboard';
+import { supabase } from '../lib/supabase';
 
 export function HomeDashboard() {
     const [activeTab, setActiveTab] = useState<'home' | 'alerts' | 'map' | 'settings'>('home');
@@ -8,13 +9,34 @@ export function HomeDashboard() {
     const [isAlertActive, setIsAlertActive] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [alertError, setAlertError] = useState<string | null>(null);
 
-  const triggerEmergency = () => {
+  const triggerEmergency = async () => {
     if (!emergencyType) {
         alert("Please select an emergency type first.");
         return;
     }
-    setIsAlertActive(true);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setAlertError('Not authenticated');
+        return;
+      }
+
+      const { error } = await supabase.from('alerts').insert({
+        client_id: user.id,
+        emergency_type: emergencyType,
+        location: 'Current Location',
+        status: 'ACTIVE',
+      });
+
+      if (error) throw error;
+      setIsAlertActive(true);
+      setAlertError(null);
+    } catch (err: any) {
+      setAlertError(err.message ?? 'Failed to send alert');
+    }
   };
 
   if (isAlertActive) {
