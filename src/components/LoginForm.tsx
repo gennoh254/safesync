@@ -27,35 +27,52 @@ export function AuthForm({ onAuthenticate }: { onAuthenticate: (type: AccountTyp
 
     try {
       if (mode === 'Signup') {
-        const { data, error: signUpError } = await supabase.auth.signUp({
+        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
           email,
           password: pin,
         });
 
         if (signUpError) throw signUpError;
+        if (!signUpData.user) throw new Error('Signup failed');
 
-        if (data.user) {
-          await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 1000));
 
-          const { error: profileError } = await supabase.from('profiles').insert({
-            id: data.user.id,
-            name,
-            company,
-            email,
-            user_type: accountType,
-          });
-
-          if (profileError) throw profileError;
-
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
           const { error: signInError } = await supabase.auth.signInWithPassword({
             email,
             password: pin,
           });
-
           if (signInError) throw signInError;
-
-          onAuthenticate(accountType);
         }
+
+        const token = session?.access_token;
+        if (!token) {
+          const freshSession = (await supabase.auth.getSession()).data.session;
+          if (!freshSession?.access_token) throw new Error('No session token');
+        }
+
+        const response = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create_profile`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token || (await supabase.auth.getSession()).data.session?.access_token}`,
+            },
+            body: JSON.stringify({
+              name,
+              company,
+              email,
+              user_type: accountType,
+            }),
+          }
+        );
+
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Failed to create profile');
+
+        onAuthenticate(accountType);
       } else {
         const { data, error: signInError } = await supabase.auth.signInWithPassword({
           email,
@@ -63,19 +80,18 @@ export function AuthForm({ onAuthenticate }: { onAuthenticate: (type: AccountTyp
         });
 
         if (signInError) throw signInError;
+        if (!data.user) throw new Error('Login failed');
 
-        if (data.user) {
-          const { data: profile, error: profileError } = await supabase
-            .from('profiles')
-            .select('user_type')
-            .eq('id', data.user.id)
-            .maybeSingle();
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('user_type')
+          .eq('id', data.user.id)
+          .maybeSingle();
 
-          if (profileError) throw profileError;
+        if (profileError) throw profileError;
 
-          const type = (profile?.user_type as AccountType) ?? accountType;
-          onAuthenticate(type);
-        }
+        const type = (profile?.user_type as AccountType) ?? accountType;
+        onAuthenticate(type);
       }
     } catch (err: any) {
       setError(err.message ?? 'An unexpected error occurred.');
