@@ -17,15 +17,15 @@ export function ReceiverAlerts() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchAlerts();
+    fetchAlerts(true);
 
     const subscription = supabase
-      .channel('alerts')
+      .channel('receiver-alerts-channel')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'alerts' },
         () => {
-          fetchAlerts();
+          fetchAlerts(false);
         }
       )
       .subscribe();
@@ -35,9 +35,9 @@ export function ReceiverAlerts() {
     };
   }, []);
 
-  const fetchAlerts = async () => {
+  const fetchAlerts = async (showLoading = true) => {
     try {
-      setLoading(true);
+      if (showLoading) setLoading(true);
       const { data, error: err } = await supabase
         .from('alerts')
         .select('*')

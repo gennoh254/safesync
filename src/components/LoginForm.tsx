@@ -27,50 +27,36 @@ export function AuthForm({ onAuthenticate }: { onAuthenticate: (type: AccountTyp
 
     try {
       if (mode === 'Signup') {
-        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-          email,
-          password: pin,
-        });
-
-        if (signUpError) throw signUpError;
-        if (!signUpData.user) throw new Error('Signup failed');
-
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) {
-          const { error: signInError } = await supabase.auth.signInWithPassword({
-            email,
-            password: pin,
-          });
-          if (signInError) throw signInError;
-        }
-
-        const token = session?.access_token;
-        if (!token) {
-          const freshSession = (await supabase.auth.getSession()).data.session;
-          if (!freshSession?.access_token) throw new Error('No session token');
-        }
-
+        // Edge function creates the user via admin API (auto-confirmed, no email sent)
         const response = await fetch(
           `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create_profile`,
           {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token || (await supabase.auth.getSession()).data.session?.access_token}`,
+              'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
             },
             body: JSON.stringify({
               name,
               company,
               email,
+              password: pin,
               user_type: accountType,
             }),
           }
         );
 
         const result = await response.json();
-        if (!response.ok) throw new Error(result.error || 'Failed to create profile');
+        if (!response.ok) throw new Error(result.error || 'Failed to create account');
+
+        // Sign in immediately — user is already confirmed
+        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password: pin,
+        });
+
+        if (signInError) throw signInError;
+        if (!signInData.user) throw new Error('Login failed after signup');
 
         onAuthenticate(accountType);
       } else {
