@@ -1,6 +1,7 @@
 import { ShieldCheck, MapPin, CircleAlert as AlertCircle, Settings, Bell, Hop as Home, Map as MapIcon, Flame, HeartPulse, Navigation } from 'lucide-react';
 import React, { useState } from 'react';
 import { AlertSentDashboard } from './AlertSentDashboard';
+import { ClientMap } from './ClientMap';
 import { supabase } from '../lib/supabase';
 
 export function HomeDashboard() {
@@ -24,10 +25,33 @@ export function HomeDashboard() {
         return;
       }
 
+      // Get real location from browser
+      let latitude: number | null = null;
+      let longitude: number | null = null;
+      let locationText = 'Current Location';
+
+      if (navigator.geolocation) {
+        try {
+          const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+              enableHighAccuracy: true,
+              timeout: 8000,
+            });
+          });
+          latitude = position.coords.latitude;
+          longitude = position.coords.longitude;
+          locationText = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+        } catch {
+          // Geolocation denied or unavailable — proceed without coordinates
+        }
+      }
+
       const { error } = await supabase.from('alerts').insert({
         client_id: user.id,
         emergency_type: emergencyType,
-        location: 'Current Location',
+        location: locationText,
+        latitude,
+        longitude,
         status: 'ACTIVE',
       });
 
@@ -158,33 +182,7 @@ export function HomeDashboard() {
         
         {activeTab === 'map' && (
             <div className="flex flex-col flex-grow w-full h-full p-4">
-                <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Help Status</h2>
-                    <div className="bg-red-900/30 text-red-500 px-3 py-1 rounded text-xs font-bold border border-red-900/50">
-                        ETA: 4 MINS
-                    </div>
-                </div>
-                
-                {/* Simplified Client Map */}
-                <div className="relative flex-grow bg-gray-950 rounded-lg border border-gray-800 overflow-hidden flex items-center justify-center">
-                    {/* Simulated Map Background */}
-                    <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#4b5563 1px, transparent 1px)', backgroundSize: '15px 15px' }}></div>
-                    
-                    {/* Simplified Markers: User Location (Venue) and Responder */}
-                    <div className="relative w-full h-full">
-                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 p-3 bg-red-600 rounded-full border-4 border-black">
-                            <Home className="w-6 h-6 text-white" />
-                        </div>
-                        <div className="absolute top-1/4 left-1/4 p-2 bg-blue-500 rounded-full border-2 border-black animate-pulse">
-                            <Navigation className="w-5 h-5 text-white" />
-                        </div>
-                    </div>
-                </div>
-
-                <div className="mt-4 bg-gray-900 border border-gray-800 p-4 rounded-lg text-center">
-                    <p className="text-sm font-bold text-gray-400 uppercase tracking-wider">Responder is en route</p>
-                    <p className="text-xl font-bold text-white mt-1">Help is approaching...</p>
-                </div>
+                <ClientMap />
             </div>
         )}
         {activeTab === 'alerts' && (

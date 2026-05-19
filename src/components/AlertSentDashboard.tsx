@@ -1,8 +1,8 @@
-import { CheckCircle, Clock, Phone, X, ShieldAlert, Navigation, Home, Map as MapIcon, Bell, Settings } from 'lucide-react';
+import { CircleCheck as CheckCircle, Clock, Phone, X, ShieldAlert, Navigation, Hop as Home, Map as MapIcon, Bell, Settings } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { APIProvider, Map, AdvancedMarker, Pin } from '@vis.gl/react-google-maps';
 
-const API_KEY = process.env.GOOGLE_MAPS_PLATFORM_KEY || '';
+const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_PLATFORM_KEY || process.env.GOOGLE_MAPS_PLATFORM_KEY || '';
 
 export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergencyType }: { onCancel: () => void, darkMode: boolean, setActiveTab: (tab: 'home' | 'alerts' | 'map' | 'settings') => void, emergencyType: string | null }) {
   const [eta, setEta] = useState(4);
