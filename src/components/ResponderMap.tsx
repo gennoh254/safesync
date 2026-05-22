@@ -1,7 +1,7 @@
 import { APIProvider, Map, AdvancedMarker } from '@vis.gl/react-google-maps';
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Navigation, Hop as Home, Loader as Loader2, CircleAlert as AlertCircle, Phone, CircleCheck as CheckCircle, Flame, HeartPulse, CircleAlert as AlertTriangle } from 'lucide-react';
+import { Navigation, Hop as Home, Loader as Loader2, CircleAlert as AlertCircle, Phone, CircleCheck as CheckCircle, Flame, HeartPulse, CircleAlert as AlertTriangle, User } from 'lucide-react';
 
 const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_PLATFORM_KEY || process.env.GOOGLE_MAPS_PLATFORM_KEY || '';
 
@@ -16,6 +16,21 @@ interface AlertLocation {
   created_at: string;
 }
 
+interface AcceptedAlert {
+  id: string;
+  emergency_type: string;
+  location: string;
+  latitude: number;
+  longitude: number;
+  client_id: string;
+}
+
+interface ClientInfo {
+  id: string;
+  name: string;
+  email: string;
+}
+
 function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -26,13 +41,29 @@ function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: numbe
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-export function ResponderMap({ darkMode }: { darkMode: boolean }) {
+export function ResponderMap({ darkMode, acceptedAlert }: { darkMode: boolean; acceptedAlert?: AcceptedAlert | null }) {
   const [responderLocation, setResponderLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [alerts, setAlerts] = useState<AlertLocation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
-  const [selectedAlert, setSelectedAlert] = useState<AlertLocation | null>(null);
+  const [selectedAlert, setSelectedAlert] = useState<AlertLocation | null>(acceptedAlert || null);
+  const [clientInfo, setClientInfo] = useState<ClientInfo | null>(null);
+
+  // Fetch client info when selected alert changes
+  useEffect(() => {
+    const fetchClientInfo = async () => {
+      if (selectedAlert?.client_id) {
+        const { data } = await supabase
+          .from('profiles')
+          .select('id, name, email')
+          .eq('id', selectedAlert.client_id)
+          .maybeSingle();
+        if (data) setClientInfo(data as ClientInfo);
+      }
+    };
+    fetchClientInfo();
+  }, [selectedAlert?.client_id]);
 
   useEffect(() => {
     let mounted = true;
@@ -48,12 +79,16 @@ export function ResponderMap({ darkMode }: { darkMode: boolean }) {
               const lng = position.coords.longitude;
               setResponderLocation({ lat, lng });
 
-              // Update profile with current location
+              // Update profile with current location and timestamp
               const { data: { user } } = await supabase.auth.getUser();
               if (user) {
                 await supabase
                   .from('profiles')
-                  .update({ latitude: lat, longitude: lng })
+                  .update({
+                    latitude: lat,
+                    longitude: lng,
+                    last_location_update: new Date().toISOString()
+                  })
                   .eq('id', user.id);
               }
             },
@@ -118,17 +153,18 @@ export function ResponderMap({ darkMode }: { darkMode: boolean }) {
     };
   }, []);
 
-  const handleAcceptAlert = async (alertId: string) => {
+  const handleResolveAlert = async (alertId: string) => {
     try {
       const { error: err } = await supabase
         .from('alerts')
-        .update({ status: 'ACCEPTED' })
+        .update({ status: 'RESOLVED' })
         .eq('id', alertId);
       if (err) throw err;
       setAlerts(alerts.filter(a => a.id !== alertId));
       setSelectedAlert(null);
+      setClientInfo(null);
     } catch (err: any) {
-      setError(err.message ?? 'Failed to accept alert');
+      setError(err.message ?? 'Failed to resolve alert');
     }
   };
 
@@ -162,6 +198,10 @@ export function ResponderMap({ darkMode }: { darkMode: boolean }) {
     );
   }
 
+  const distanceToSelected = selectedAlert && selectedAlert.latitude && selectedAlert.longitude
+    ? haversineDistance(responderLocation.lat, responderLocation.lng, selectedAlert.latitude, selectedAlert.longitude)
+    : null;
+
   return (
     <div className={`flex flex-col flex-grow w-full h-full ${darkMode ? 'bg-black text-white' : 'bg-white text-black'} font-sans`}>
       {locationError && (
@@ -174,7 +214,9 @@ export function ResponderMap({ darkMode }: { darkMode: boolean }) {
       <div className="h-64 lg:h-[500px] relative overflow-hidden rounded-lg border border-gray-200">
         <APIProvider apiKey={API_KEY} version="weekly">
           <Map
-            defaultCenter={responderLocation}
+            defaultCenter={selectedAlert?.latitude && selectedAlert?.longitude
+              ? { lat: selectedAlert.latitude, lng: selectedAlert.longitude }
+              : responderLocation}
             defaultZoom={14}
             mapId="RESPONDER_MAP_ID"
             internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
@@ -194,12 +236,23 @@ export function ResponderMap({ darkMode }: { darkMode: boolean }) {
               </div>
             </AdvancedMarker>
 
-            {/* Client alert markers */}
-            {alerts.map((alert) => {
-              const dist = haversineDistance(
-                responderLocation.lat, responderLocation.lng,
-                alert.latitude, alert.longitude
-              );
+            {/* Selected/target alert marker */}
+            {selectedAlert && selectedAlert.latitude && selectedAlert.longitude && (
+              <AdvancedMarker position={{ lat: selectedAlert.latitude, lng: selectedAlert.longitude }}>
+                <div className="relative">
+                  <div className={`w-12 h-12 ${getAlertColor(selectedAlert.emergency_type)} rounded-full border-4 border-white shadow-lg flex items-center justify-center animate-pulse`}>
+                    {getAlertIcon(selectedAlert.emergency_type)}
+                  </div>
+                  <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap bg-red-600 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow">
+                    {selectedAlert.emergency_type}
+                  </div>
+                </div>
+              </AdvancedMarker>
+            )}
+
+            {/* Other alert markers */}
+            {alerts.filter(a => !selectedAlert || a.id !== selectedAlert.id).map((alert) => {
+              const dist = haversineDistance(responderLocation.lat, responderLocation.lng, alert.latitude, alert.longitude);
               return (
                 <AdvancedMarker
                   key={alert.id}
@@ -207,10 +260,10 @@ export function ResponderMap({ darkMode }: { darkMode: boolean }) {
                   onClick={() => setSelectedAlert(alert)}
                 >
                   <div className="relative cursor-pointer">
-                    <div className={`w-9 h-9 ${getAlertColor(alert.emergency_type)} rounded-full border-3 border-white shadow-lg flex items-center justify-center animate-pulse`}>
+                    <div className={`w-9 h-9 ${getAlertColor(alert.emergency_type)} rounded-full border-3 border-white shadow-lg flex items-center justify-center`}>
                       {getAlertIcon(alert.emergency_type)}
                     </div>
-                    <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap bg-red-600 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow">
+                    <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap bg-gray-800 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow">
                       {dist.toFixed(1)} km
                     </div>
                   </div>
@@ -224,7 +277,7 @@ export function ResponderMap({ darkMode }: { darkMode: boolean }) {
           LIVE STATUS
         </div>
 
-        {alerts.length > 0 && (
+        {alerts.length > 0 && !selectedAlert && (
           <div className="absolute top-2 right-2 bg-red-600 text-white px-2 py-1 rounded text-[10px] font-bold shadow-sm">
             {alerts.length} ACTIVE ALERT{alerts.length !== 1 ? 'S' : ''}
           </div>
@@ -251,44 +304,76 @@ export function ResponderMap({ darkMode }: { darkMode: boolean }) {
               </span>
             </div>
 
+            {/* Distance and ETA */}
             <div className={`flex items-center justify-between p-3 rounded-lg mb-4 ${darkMode ? 'bg-gray-800' : 'bg-white'}`}>
-              <span className="text-sm font-bold">
-                Distance: {haversineDistance(
-                  responderLocation.lat, responderLocation.lng,
-                  selectedAlert.latitude, selectedAlert.longitude
-                ).toFixed(1)} km
-              </span>
-              <span className="text-sm text-gray-500">
-                ETA: ~{Math.max(1, Math.round(haversineDistance(
-                  responderLocation.lat, responderLocation.lng,
-                  selectedAlert.latitude, selectedAlert.longitude
-                ) / 0.5))} mins
-              </span>
+              <div>
+                <span className="text-sm text-gray-500">Distance</span>
+                <p className="font-bold text-lg">
+                  {distanceToSelected ? `${distanceToSelected.toFixed(1)} km` : 'Calculating...'}
+                </p>
+              </div>
+              <div className="text-right">
+                <span className="text-sm text-gray-500">ETA</span>
+                <p className="font-bold text-lg text-blue-600">
+                  ~{distanceToSelected ? Math.max(1, Math.round(distanceToSelected / 0.5)) : '?'} mins
+                </p>
+              </div>
             </div>
 
+            {/* Client Info */}
+            {clientInfo && (
+              <div className={`flex items-center gap-3 p-3 rounded-lg mb-4 ${darkMode ? 'bg-gray-800' : 'bg-white border border-gray-100'}`}>
+                <div className="w-10 h-10 rounded-full bg-gray-300 flex items-center justify-center">
+                  <User className="w-5 h-5 text-gray-600" />
+                </div>
+                <div className="flex-grow">
+                  <p className="font-bold">{clientInfo.name}</p>
+                  <p className="text-xs text-gray-500">{clientInfo.email}</p>
+                </div>
+                <a
+                  href={`mailto:${clientInfo.email}`}
+                  className="w-10 h-10 rounded-full bg-green-600 flex items-center justify-center hover:bg-green-700 transition-colors"
+                >
+                  <Phone className="w-5 h-5 text-white" />
+                </a>
+              </div>
+            )}
+
+            {/* Action buttons */}
             <div className="flex gap-2">
               <button
-                onClick={() => handleAcceptAlert(selectedAlert.id)}
-                className="flex-grow bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-colors"
+                onClick={() => handleResolveAlert(selectedAlert.id)}
+                className="flex-grow bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl transition-colors flex items-center justify-center gap-2"
               >
-                ACCEPT
+                <CheckCircle className="w-5 h-5" />
+                RESOLVE
               </button>
-              <button className="px-4 bg-red-600 hover:bg-red-700 rounded-xl text-white transition-colors">
-                <Phone className="w-5 h-5" />
+              <button
+                onClick={() => { setSelectedAlert(null); setClientInfo(null); }}
+                className="px-4 bg-gray-200 hover:bg-gray-300 rounded-xl text-gray-700 transition-colors font-bold"
+              >
+                BACK
               </button>
             </div>
           </div>
         ) : (
           <>
-            <h2 className="text-xl font-bold mb-4">Responder is En Route</h2>
+            <h2 className="text-xl font-bold mb-4">Responder View</h2>
             <div className={`p-4 rounded-lg flex items-center justify-between mb-6 ${darkMode ? 'bg-gray-900' : 'bg-gray-100'}`}>
-              <span>ETA: Calculating...</span>
-              <button className="bg-red-600 text-white p-2 rounded-full"><Phone className="w-4 h-4" /></button>
+              <span className="text-gray-600">
+                {alerts.length > 0
+                  ? 'Click on an alert marker to see details'
+                  : 'No active alerts to respond to'}
+              </span>
+              {alerts.length > 0 && (
+                <span className="text-blue-600 font-bold">{alerts.length} pending</span>
+              )}
             </div>
-            <button className="w-full bg-green-600 text-white font-bold py-4 rounded-lg uppercase flex items-center justify-center gap-2">
-              <CheckCircle className="w-5 h-5" />
-              Arrived at Scene
-            </button>
+            {alerts.length > 0 && (
+              <p className="text-sm text-gray-500 text-center">
+                Select a marker on the map to view emergency details
+              </p>
+            )}
           </>
         )}
       </div>

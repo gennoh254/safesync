@@ -1,20 +1,134 @@
-import { CircleCheck as CheckCircle, Clock, Phone, X, ShieldAlert, Navigation, Hop as Home, Map as MapIcon, Bell, Settings } from 'lucide-react';
+import { CircleCheck as CheckCircle, Clock, Phone, X, ShieldAlert, Navigation, Hop as Home, Map as MapIcon, Bell, Settings, Loader as Loader2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { APIProvider, Map, AdvancedMarker, Pin } from '@vis.gl/react-google-maps';
+import { APIProvider, Map, AdvancedMarker } from '@vis.gl/react-google-maps';
+import { supabase } from '../lib/supabase';
 
 const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_PLATFORM_KEY || process.env.GOOGLE_MAPS_PLATFORM_KEY || '';
 
+interface AlertData {
+  id: string;
+  emergency_type: string;
+  location: string;
+  latitude: number;
+  longitude: number;
+  status: string;
+}
+
+interface ResponderInfo {
+  id: string;
+  name: string;
+  email: string;
+  latitude: number;
+  longitude: number;
+}
+
+function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergencyType }: { onCancel: () => void, darkMode: boolean, setActiveTab: (tab: 'home' | 'alerts' | 'map' | 'settings') => void, emergencyType: string | null }) {
-  const [eta, setEta] = useState(4);
   const [showConfirmCancel, setShowConfirmCancel] = useState(false);
+  const [alertData, setAlertData] = useState<AlertData | null>(null);
+  const [responder, setResponder] = useState<ResponderInfo | null>(null);
+  const [distance, setDistance] = useState<number | null>(null);
+  const [eta, setEta] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [statusStep, setStatusStep] = useState<'transmitted' | 'accepted' | 'dispatched'>('transmitted');
 
   useEffect(() => {
-    if (eta <= 0) return;
-    const interval = setInterval(() => {
-      setEta((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 15000); 
-    return () => clearInterval(interval);
-  }, [eta]);
+    let mounted = true;
+
+    const fetchLatestAlert = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Get the client's latest active alert
+      const { data: alerts } = await supabase
+        .from('alerts')
+        .select('*')
+        .eq('client_id', user.id)
+        .eq('status', 'ACTIVE')
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (alerts && alerts.length > 0 && mounted) {
+        const alert = alerts[0] as AlertData;
+        setAlertData(alert);
+        setLoading(false);
+
+        // Check for responders nearby
+        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+        const { data: responders } = await supabase
+          .from('profiles')
+          .select('id, name, email, latitude, longitude')
+          .eq('user_type', 'Responder')
+          .not('latitude', 'is', null)
+          .not('longitude', 'is', null)
+          .gte('last_location_update', fiveMinutesAgo);
+
+        if (responders && responders.length > 0 && alert.latitude && alert.longitude) {
+          // Find nearest responder
+          const nearest = (responders as ResponderInfo[]).reduce((closest, r) => {
+            const dist = haversineDistance(alert.latitude, alert.longitude, r.latitude, r.longitude);
+            return dist < closest.dist ? { responder: r, dist } : closest;
+          }, { responder: responders[0] as ResponderInfo, dist: Infinity });
+
+          setResponder(nearest.responder);
+          setDistance(nearest.dist);
+          setEta(Math.max(1, Math.round(nearest.dist / 0.5)));
+
+          // Simulate status progression
+          setTimeout(() => {
+            if (mounted) setStatusStep('accepted');
+          }, 3000);
+          setTimeout(() => {
+            if (mounted) setStatusStep('dispatched');
+          }, 6000);
+        }
+      } else if (mounted) {
+        setLoading(false);
+      }
+    };
+
+    fetchLatestAlert();
+
+    // Subscribe to alert updates
+    const channel = supabase
+      .channel('alert-status-channel')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'alerts' },
+        (payload) => {
+          if (mounted && payload.new) {
+            const updated = payload.new as AlertData;
+            if (updated.status === 'ACCEPTED') {
+              setStatusStep('accepted');
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      mounted = false;
+      channel.unsubscribe();
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <div className={`flex flex-col flex-grow w-full max-w-md items-center justify-center gap-4 ${darkMode ? 'bg-black text-white' : 'bg-white text-black'} font-sans p-8`}>
+        <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+        <p className="text-gray-500 text-sm">Loading alert status...</p>
+      </div>
+    );
+  }
 
   return (
     <div className={`flex flex-col flex-grow w-full max-w-md ${darkMode ? 'bg-black text-white' : 'bg-white text-black'} font-sans relative`}>
@@ -36,56 +150,138 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
                 <Navigation className="w-8 h-8 text-red-500" />
             </div>
             <h1 className="text-2xl font-bold text-red-500 tracking-tight uppercase">
-                {emergencyType} Alert Confirmed
+                {emergencyType || alertData?.emergency_type || 'Emergency'} Alert Confirmed
             </h1>
             <p className={`${darkMode ? 'text-gray-400' : 'text-gray-600'} text-sm`}>
                 Help is arriving at your venue.
             </p>
-            <p className={`${darkMode ? 'text-gray-400' : 'text-gray-600'} text-sm mt-1`}>Contact: <span className="font-bold">+254 700 000 000</span></p>
-            <p className={`text-xl font-bold ${darkMode ? 'text-white' : 'text-black'} mt-1`}>ETA: {eta} {eta === 1 ? 'min' : 'mins'}</p>
           </div>
-          
-          {/* Real Map */}
+
+          {/* Responder Info Card */}
+          {responder && (
+            <div className={`${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-gray-50 border-gray-200'} border rounded-lg p-4 mb-4`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold uppercase text-gray-400">Assigned Responder</span>
+                <span className="text-xs font-bold text-green-500 flex items-center gap-1">
+                  <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                  EN ROUTE
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-blue-500 flex items-center justify-center">
+                  <Navigation className="w-6 h-6 text-white" />
+                </div>
+                <div className="flex-grow">
+                  <p className="font-bold">{responder.name}</p>
+                  <p className="text-sm text-gray-500">{responder.email}</p>
+                </div>
+                <a
+                  href={`tel:${responder.email}`}
+                  className="w-10 h-10 rounded-full bg-green-600 flex items-center justify-center"
+                >
+                  <Phone className="w-5 h-5 text-white" />
+                </a>
+              </div>
+            </div>
+          )}
+
+          {/* ETA Display */}
+          <div className="flex items-center justify-between mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div className="flex items-center gap-2">
+              <Clock className="w-5 h-5 text-red-500" />
+              <span className="font-bold text-red-700">Estimated Time</span>
+            </div>
+            <span className="text-2xl font-bold text-red-600">
+              {eta ? `${eta} min` : 'Calculating...'}
+            </span>
+          </div>
+
+          {/* Distance Display */}
+          {distance !== null && (
+            <div className="text-center mb-4">
+              <span className="text-sm text-gray-500">Responder is </span>
+              <span className="font-bold text-blue-600">{distance.toFixed(1)} km</span>
+              <span className="text-sm text-gray-500"> away</span>
+            </div>
+          )}
+
+          {/* Map */}
           <div className="border border-gray-200/50 rounded-2xl mb-4 h-64 relative overflow-hidden shadow-sm">
             <APIProvider apiKey={API_KEY} version="weekly">
                 <Map
-                    defaultCenter={{lat: -1.2921, lng: 36.8219}} // Nairobi
+                    defaultCenter={alertData?.latitude && alertData?.longitude
+                      ? { lat: alertData.latitude, lng: alertData.longitude }
+                      : { lat: -1.2921, lng: 36.8219 }}
                     defaultZoom={15}
-                    mapId="DEMO_MAP_ID"
+                    mapId="ALERT_MAP_ID"
                     internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
                     style={{width: '100%', height: '100%'}}
                     gestureHandling={'greedy'}
                     disableDefaultUI={false}
                     className="rounded-2xl"
                 >
-                    <AdvancedMarker position={{lat: -1.2921, lng: 36.8219}}>
-                        <Pin background="#ef4444" glyphColor="#fff" borderColor="#b91c1c" />
-                    </AdvancedMarker>
-                    <AdvancedMarker position={{lat: -1.295, lng: 36.825}}>
-                        <Pin background="#3b82f6" glyphColor="#fff" borderColor="#1e40af" />
-                    </AdvancedMarker>
+                    {/* Client/Alert marker */}
+                    {alertData?.latitude && alertData?.longitude && (
+                      <AdvancedMarker position={{ lat: alertData.latitude, lng: alertData.longitude }}>
+                        <div className="relative">
+                          <div className="w-10 h-10 bg-red-600 rounded-full border-4 border-white shadow-lg flex items-center justify-center">
+                            <Home className="w-5 h-5 text-white" />
+                          </div>
+                        </div>
+                      </AdvancedMarker>
+                    )}
+                    {/* Responder marker */}
+                    {responder && (
+                      <AdvancedMarker position={{ lat: responder.latitude, lng: responder.longitude }}>
+                        <div className="relative">
+                          <div className="w-9 h-9 bg-blue-500 rounded-full border-3 border-white shadow-lg flex items-center justify-center animate-pulse">
+                            <Navigation className="w-4 h-4 text-white" />
+                          </div>
+                        </div>
+                      </AdvancedMarker>
+                    )}
                 </Map>
             </APIProvider>
-            {/* Loading/Error layer placeholder */}
             <div className="absolute top-2 left-2 bg-white/80 backdrop-blur-sm px-2 py-1 rounded text-[10px] font-bold text-gray-700 shadow-sm border border-gray-100">
                 LIVE STATUS
             </div>
           </div>
 
+          {/* Status Progress */}
           <div className={`${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-gray-100 border-gray-200'} border rounded-lg p-4 mb-4`}>
             <div className={`relative border-l-2 ${darkMode ? 'border-gray-700' : 'border-gray-300'} ml-2 pl-4 space-y-4`}>
                 <div className="relative">
-                    <div className="absolute -left-7 p-0.5 bg-green-500 rounded-full"><CheckCircle className="w-3 h-3 text-white" /></div>
-                    <h3 className={`font-bold text-sm ${darkMode ? '' : 'text-gray-800'}`}>Alert Transmitted</h3>
+                    <div className={`absolute -left-7 p-0.5 rounded-full ${statusStep >= 'transmitted' ? 'bg-green-500' : 'bg-gray-400'}`}>
+                      <CheckCircle className="w-3 h-3 text-white" />
+                    </div>
+                    <h3 className={`font-bold text-sm ${statusStep >= 'transmitted' ? '' : 'text-gray-400'}`}>
+                      Alert Transmitted
+                    </h3>
+                    <p className="text-xs text-gray-500">Emergency alert sent to responders</p>
                 </div>
                 <div className="relative">
-                    <div className="absolute -left-7 p-0.5 bg-red-600 rounded-full"><ShieldAlert className="w-3 h-3 text-white" /></div>
-                    <h3 className={`font-bold text-sm ${darkMode ? '' : 'text-gray-800'}`}>Help Dispatched</h3>
+                    <div className={`absolute -left-7 p-0.5 rounded-full ${statusStep >= 'accepted' ? 'bg-green-500' : 'bg-gray-400'}`}>
+                      <ShieldAlert className="w-3 h-3 text-white" />
+                    </div>
+                    <h3 className={`font-bold text-sm ${statusStep >= 'accepted' ? '' : 'text-gray-400'}`}>
+                      Alert Accepted
+                    </h3>
+                    <p className="text-xs text-gray-500">
+                      {statusStep >= 'accepted' ? 'Responder has acknowledged the alert' : 'Waiting for responder...'}
+                    </p>
+                </div>
+                <div className="relative">
+                    <div className={`absolute -left-7 p-0.5 rounded-full ${statusStep >= 'dispatched' ? 'bg-green-500' : 'bg-gray-400'}`}>
+                      <Navigation className="w-3 h-3 text-white" />
+                    </div>
+                    <h3 className={`font-bold text-sm ${statusStep >= 'dispatched' ? '' : 'text-gray-400'}`}>
+                      Help Dispatched
+                    </h3>
+                    <p className="text-xs text-gray-500">
+                      {statusStep >= 'dispatched' ? 'Responder is on the way' : 'Waiting for dispatch...'}
+                    </p>
                 </div>
             </div>
-          </div>
-
-          <div className="mb-4">
           </div>
 
           <button onClick={() => setShowConfirmCancel(true)} className={`w-full ${darkMode ? 'bg-gray-900 text-gray-300 border-gray-700' : 'bg-gray-200 text-gray-800 border-gray-300'} border py-3 rounded font-bold hover:bg-gray-800 transition-all text-sm`}>

@@ -1,4 +1,4 @@
-import { APIProvider, Map, AdvancedMarker, Pin } from '@vis.gl/react-google-maps';
+import { APIProvider, Map, AdvancedMarker } from '@vis.gl/react-google-maps';
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { Navigation, Hop as Home, Loader as Loader2, CircleAlert as AlertCircle } from 'lucide-react';
@@ -10,6 +10,7 @@ interface ResponderLocation {
   name: string;
   latitude: number;
   longitude: number;
+  last_location_update: string | null;
 }
 
 function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -43,18 +44,21 @@ export function ClientMap() {
               const lng = position.coords.longitude;
               setClientLocation({ lat, lng });
 
-              // Update profile with current location
+              // Update profile with current location and timestamp
               const { data: { user } } = await supabase.auth.getUser();
               if (user) {
                 await supabase
                   .from('profiles')
-                  .update({ latitude: lat, longitude: lng })
+                  .update({
+                    latitude: lat,
+                    longitude: lng,
+                    last_location_update: new Date().toISOString()
+                  })
                   .eq('id', user.id);
               }
             },
             () => {
               if (!mounted) return;
-              // Fallback to Nairobi if geolocation denied
               setClientLocation({ lat: -1.2921, lng: 36.8219 });
               setLocationError('Location access denied — using default location');
             },
@@ -65,13 +69,15 @@ export function ClientMap() {
           setLocationError('Geolocation not supported — using default location');
         }
 
-        // Fetch responder locations
+        // Fetch online responders (updated location within last 5 minutes)
+        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
         const { data, error: fetchError } = await supabase
           .from('profiles')
-          .select('id, name, latitude, longitude')
+          .select('id, name, latitude, longitude, last_location_update')
           .eq('user_type', 'Responder')
           .not('latitude', 'is', null)
-          .not('longitude', 'is', null);
+          .not('longitude', 'is', null)
+          .gte('last_location_update', fiveMinutesAgo);
 
         if (fetchError) throw fetchError;
         if (mounted) setResponders((data || []) as ResponderLocation[]);
@@ -91,22 +97,49 @@ export function ClientMap() {
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'profiles' },
         (payload) => {
-          if (payload.new && payload.new.user_type === 'Responder') {
-            setResponders((prev) =>
-              prev.map((r) =>
-                r.id === payload.new.id
-                  ? { ...r, latitude: payload.new.latitude, longitude: payload.new.longitude }
-                  : r
-              ).filter((r) => r.latitude != null && r.longitude != null)
-            );
+          if (payload.new && (payload.new as any).user_type === 'Responder') {
+            const newData = payload.new as any;
+            // Only add if recently updated (within 5 minutes)
+            const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+            const lastUpdate = newData.last_location_update ? new Date(newData.last_location_update).getTime() : 0;
+
+            if (lastUpdate >= fiveMinutesAgo && newData.latitude && newData.longitude) {
+              setResponders((prev) => {
+                const filtered = prev.filter((r) => r.id !== newData.id);
+                return [...filtered, {
+                  id: newData.id,
+                  name: newData.name,
+                  latitude: newData.latitude,
+                  longitude: newData.longitude,
+                  last_location_update: newData.last_location_update
+                }];
+              });
+            } else {
+              // Remove if no longer online
+              setResponders((prev) => prev.filter((r) => r.id !== newData.id));
+            }
           }
         }
       )
       .subscribe();
 
+    // Periodically refresh responder list to remove stale entries
+    const interval = setInterval(async () => {
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, name, latitude, longitude, last_location_update')
+        .eq('user_type', 'Responder')
+        .not('latitude', 'is', null)
+        .not('longitude', 'is', null)
+        .gte('last_location_update', fiveMinutesAgo);
+      if (mounted && data) setResponders(data as ResponderLocation[]);
+    }, 30000);
+
     return () => {
       mounted = false;
       channel.unsubscribe();
+      clearInterval(interval);
     };
   }, []);
 
@@ -198,6 +231,12 @@ export function ClientMap() {
         <div className="absolute top-2 left-2 bg-white/90 backdrop-blur-sm px-2 py-1 rounded text-[10px] font-bold text-gray-700 shadow-sm border border-gray-100">
           LIVE STATUS
         </div>
+
+        {responders.length > 0 && (
+          <div className="absolute top-2 right-2 bg-blue-600 text-white px-2 py-1 rounded text-[10px] font-bold shadow-sm">
+            {responders.length} RESPONDER{responders.length !== 1 ? 'S' : ''} ONLINE
+          </div>
+        )}
       </div>
 
       {/* Info panel */}

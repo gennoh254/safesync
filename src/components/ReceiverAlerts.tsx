@@ -9,9 +9,20 @@ interface Alert {
   created_at: string;
   status: string;
   client_id: string;
+  latitude: number | null;
+  longitude: number | null;
 }
 
-export function ReceiverAlerts() {
+interface AcceptedAlertData {
+  id: string;
+  emergency_type: string;
+  location: string;
+  latitude: number;
+  longitude: number;
+  client_id: string;
+}
+
+export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: AcceptedAlertData) => void }) {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -54,15 +65,25 @@ export function ReceiverAlerts() {
     }
   };
 
-  const handleAcceptAlert = async (alertId: string) => {
+  const handleAcceptAlert = async (alert: Alert) => {
     try {
       const { error: err } = await supabase
         .from('alerts')
         .update({ status: 'ACCEPTED' })
-        .eq('id', alertId);
+        .eq('id', alert.id);
 
       if (err) throw err;
-      setAlerts(alerts.filter(a => a.id !== alertId));
+      setAlerts(alerts.filter(a => a.id !== alert.id));
+
+      // Navigate to map with alert data
+      onAcceptAlert({
+        id: alert.id,
+        emergency_type: alert.emergency_type,
+        location: alert.location,
+        latitude: alert.latitude || 0,
+        longitude: alert.longitude || 0,
+        client_id: alert.client_id,
+      });
     } catch (err: any) {
       setError(err.message ?? 'Failed to accept alert');
     }
@@ -141,7 +162,7 @@ export function ReceiverAlerts() {
 
                 <div className="flex gap-2">
                   <button
-                    onClick={() => handleAcceptAlert(alert.id)}
+                    onClick={() => handleAcceptAlert(alert)}
                     className="flex-grow bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-colors"
                   >
                     ACCEPT
