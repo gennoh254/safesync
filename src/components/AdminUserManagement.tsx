@@ -48,7 +48,8 @@ export function AdminUserManagement() {
       if (fetchError) throw fetchError;
       setUsers((data || []) as Profile[]);
     } catch (err: any) {
-      setError(err.message);
+      console.error('Error fetching users:', err);
+      setError(err.message || 'Failed to fetch users');
     } finally {
       setLoading(false);
     }

@@ -69,35 +69,43 @@ export function AdminLiveMap() {
 
   const fetchData = async () => {
     try {
-      const { data: clientsData } = await supabase
+      const { data: clientsData, error: clientsError } = await supabase
         .from('profiles')
         .select('*')
         .eq('user_type', 'Client')
         .not('latitude', 'is', null);
+      if (clientsError) throw clientsError;
       setClients((clientsData || []) as Profile[]);
 
-      const { data: respondersData } = await supabase
+      const { data: respondersData, error: respondersError } = await supabase
         .from('profiles')
         .select('*')
         .eq('user_type', 'Responder')
         .not('latitude', 'is', null);
+      if (respondersError) throw respondersError;
       setResponders((respondersData || []) as Profile[]);
 
       await fetchAlerts();
     } catch (err: any) {
-      setError(err.message);
+      console.error('Error fetching map data:', err);
+      setError(err.message || 'Failed to fetch map data');
     } finally {
       setLoading(false);
     }
   };
 
   const fetchAlerts = async () => {
-    const { data: alertsData } = await supabase
-      .from('alerts')
-      .select('*')
-      .in('status', ['ACTIVE', 'ACCEPTED'])
-      .not('latitude', 'is', null);
-    setAlerts((alertsData || []) as Alert[]);
+    try {
+      const { data: alertsData, error: alertsError } = await supabase
+        .from('alerts')
+        .select('*')
+        .in('status', ['ACTIVE', 'ACCEPTED'])
+        .not('latitude', 'is', null);
+      if (alertsError) throw alertsError;
+      setAlerts((alertsData || []) as Alert[]);
+    } catch (err: any) {
+      console.error('Error fetching alerts for map:', err);
+    }
   };
 
   const getAlertIcon = (type: string) => {

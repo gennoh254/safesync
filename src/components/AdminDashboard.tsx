@@ -38,6 +38,7 @@ export function AdminDashboard() {
 
   useEffect(() => {
     fetchDashboardData();
+    fetchUserStats();
 
     const channel = supabase
       .channel('admin-dashboard-channel')
@@ -89,18 +90,26 @@ export function AdminDashboard() {
   };
 
   const fetchUserStats = async () => {
-    const { data: clients } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('user_type', 'Client');
-    const { data: responders } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('user_type', 'Responder');
-    setUserStats({
-      clients: clients?.length || 0,
-      responders: responders?.length || 0,
-    });
+    try {
+      const { data: clients, error: clientsError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('user_type', 'Client');
+      if (clientsError) throw clientsError;
+
+      const { data: responders, error: respondersError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('user_type', 'Responder');
+      if (respondersError) throw respondersError;
+
+      setUserStats({
+        clients: clients?.length || 0,
+        responders: responders?.length || 0,
+      });
+    } catch (err: any) {
+      console.error('Error fetching user stats:', err);
+    }
   };
 
   const exportToCSV = () => {

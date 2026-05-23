@@ -69,7 +69,8 @@ export function AdminAuditLogs() {
 
       setAlerts(alertsWithProfiles);
     } catch (err: any) {
-      setError(err.message);
+      console.error('Error fetching alerts:', err);
+      setError(err.message || 'Failed to fetch alerts');
     } finally {
       setLoading(false);
     }
