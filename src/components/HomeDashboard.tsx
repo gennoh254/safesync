@@ -1,10 +1,14 @@
-import { ShieldCheck, MapPin, CircleAlert as AlertCircle, Settings, Bell, Hop as Home, Map as MapIcon, Flame, HeartPulse, Navigation } from 'lucide-react';
+import { ShieldCheck, MapPin, CircleAlert as AlertCircle, Settings, Bell, Hop as Home, Map as MapIcon, Flame, HeartPulse, Navigation, LogOut } from 'lucide-react';
 import React, { useState } from 'react';
 import { AlertSentDashboard } from './AlertSentDashboard';
 import { ClientMap } from './ClientMap';
 import { supabase } from '../lib/supabase';
 
-export function HomeDashboard() {
+interface HomeDashboardProps {
+  onLogout: () => void;
+}
+
+export function HomeDashboard({ onLogout }: HomeDashboardProps) {
     const [activeTab, setActiveTab] = useState<'home' | 'alerts' | 'map' | 'settings'>('home');
     const [emergencyType, setEmergencyType] = useState<string | null>(null);
     const [isAlertActive, setIsAlertActive] = useState(false);
@@ -93,6 +97,7 @@ export function HomeDashboard() {
           <button onClick={() => setActiveTab('map')} className={`flex items-center gap-3 w-full p-3 rounded-lg ${activeTab === 'map' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}><MapIcon className="w-5 h-5 text-white" />Map</button>
           <button onClick={() => setActiveTab('settings')} className={`flex items-center gap-3 w-full p-3 rounded-lg ${activeTab === 'settings' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}><Settings className="w-5 h-5 text-white" />Settings</button>
         </div>
+        <button onClick={onLogout} className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-slate-800 mt-auto text-gray-400 hover:text-white"><LogOut className="w-5 h-5" />Log Out</button>
       </nav>
 
       {/* Main Content */}
@@ -228,11 +233,12 @@ export function HomeDashboard() {
       </div>
       
       {/* Navbar */}
-      <footer className="lg:hidden sticky bottom-0 z-50 grid grid-cols-4 bg-[#0B1727] border-t border-slate-800 py-4">
+      <footer className="lg:hidden sticky bottom-0 z-50 grid grid-cols-5 bg-[#0B1727] border-t border-slate-800 py-4">
         <button onClick={() => { setActiveTab('home'); }} className={`flex flex-col items-center gap-1 ${activeTab === 'home' ? 'text-blue-400' : 'text-white'}`}><Home className="w-6 h-6" /><span className="text-[10px] font-bold">HOME</span></button>
         <button onClick={() => setActiveTab('alerts')} className={`flex flex-col items-center gap-1 ${activeTab === 'alerts' ? 'text-blue-400' : 'text-white'}`}><Bell className="w-6 h-6" /><span className="text-[10px] font-bold">ALERTS</span></button>
         <button onClick={() => setActiveTab('map')} className={`flex flex-col items-center gap-1 ${activeTab === 'map' ? 'text-blue-400' : 'text-white'}`}><MapIcon className="w-6 h-6" /><span className="text-[10px] font-bold">MAP</span></button>
         <button onClick={() => setActiveTab('settings')} className={`flex flex-col items-center gap-1 ${activeTab === 'settings' ? 'text-blue-400' : 'text-white'}`}><Settings className="w-6 h-6" /><span className="text-[10px] font-bold">SETTINGS</span></button>
+        <button onClick={onLogout} className="flex flex-col items-center gap-1 text-gray-400"><LogOut className="w-6 h-6" /><span className="text-[10px] font-bold">LOGOUT</span></button>
       </footer>
     </div>
   );

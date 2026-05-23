@@ -15,6 +15,11 @@ export default function App() {
   const [userType, setUserType] = useState<AccountType | 'Administrator' | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
 
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setUserType(null);
+  };
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
@@ -63,11 +68,11 @@ export default function App() {
             </button>
           </>
         ) : userType === 'Client' ? (
-          <HomeDashboard />
+          <HomeDashboard onLogout={handleLogout} />
         ) : userType === 'Responder' ? (
-          <ReceiverLayout />
+          <ReceiverLayout onLogout={handleLogout} />
         ) : (
-          <AdminLayout />
+          <AdminLayout onLogout={handleLogout} />
         )}
       </div>
     </ThemeProvider>

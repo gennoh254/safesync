@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Hop as Home, Bell, Map, Settings } from 'lucide-react';
+import { Hop as Home, Bell, Map, Settings, LogOut } from 'lucide-react';
 import { ReceiverAlerts } from './ReceiverAlerts';
 import { ReceiverHome } from './ReceiverHome';
 import { ReceiverTrackingPage } from './ReceiverTrackingPage';
@@ -15,7 +15,11 @@ interface AcceptedAlert {
   client_id: string;
 }
 
-export function ReceiverLayout() {
+interface ReceiverLayoutProps {
+  onLogout: () => void;
+}
+
+export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
     const [activeTab, setActiveTab] = useState<'home' | 'alerts' | 'map' | 'settings'>('home');
     const [acceptedAlert, setAcceptedAlert] = useState<AcceptedAlert | null>(null);
     const { theme } = useTheme();
@@ -37,6 +41,7 @@ export function ReceiverLayout() {
                   <button onClick={() => setActiveTab('map')} className={`flex items-center gap-3 w-full p-3 rounded-lg ${activeTab === 'map' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}><Map className="w-5 h-5 text-white" />Map</button>
                   <button onClick={() => setActiveTab('settings')} className={`flex items-center gap-3 w-full p-3 rounded-lg ${activeTab === 'settings' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}><Settings className="w-5 h-5 text-white" />Settings</button>
                 </div>
+                <button onClick={onLogout} className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-slate-800 mt-auto text-gray-400 hover:text-white"><LogOut className="w-5 h-5" />Log Out</button>
             </nav>
 
             <div className="flex-grow overflow-auto p-4 lg:p-8">
@@ -47,11 +52,12 @@ export function ReceiverLayout() {
             </div>
 
             {/* Navbar for Mobile */}
-            <nav className="lg:hidden sticky bottom-0 z-50 grid grid-cols-4 bg-[#0B1727] border-t border-slate-800 py-4 text-white">
+            <nav className="lg:hidden sticky bottom-0 z-50 grid grid-cols-5 bg-[#0B1727] border-t border-slate-800 py-4 text-white">
                 <button onClick={() => { setActiveTab('home'); setAcceptedAlert(null); }} className={`flex flex-col items-center gap-1 ${activeTab === 'home' ? 'text-blue-400' : 'text-white'}`}><Home className="w-6 h-6" /><span className="text-[10px] font-bold">HOME</span></button>
                 <button onClick={() => { setActiveTab('alerts'); setAcceptedAlert(null); }} className={`flex flex-col items-center gap-1 ${activeTab === 'alerts' ? 'text-blue-400' : 'text-white'}`}><Bell className="w-6 h-6" /><span className="text-[10px] font-bold">ALERTS</span></button>
                 <button onClick={() => setActiveTab('map')} className={`flex flex-col items-center gap-1 ${activeTab === 'map' ? 'text-blue-400' : 'text-white'}`}><Map className="w-6 h-6" /><span className="text-[10px] font-bold">MAP</span></button>
                 <button onClick={() => setActiveTab('settings')} className={`flex flex-col items-center gap-1 ${activeTab === 'settings' ? 'text-blue-400' : 'text-white'}`}><Settings className="w-6 h-6" /><span className="text-[10px] font-bold">SETTINGS</span></button>
+                <button onClick={onLogout} className="flex flex-col items-center gap-1 text-gray-400"><LogOut className="w-6 h-6" /><span className="text-[10px] font-bold">LOGOUT</span></button>
             </nav>
         </div>
     );
