@@ -1,11 +1,22 @@
-import { ShieldCheck, MapPin, CircleAlert as AlertCircle, Settings, Bell, Hop as Home, Map as MapIcon, Flame, HeartPulse, Navigation, LogOut } from 'lucide-react';
-import React, { useState } from 'react';
+import { MapPin, CircleAlert as AlertCircle, Settings, Bell, Hop as Home, Map as MapIcon, Flame, HeartPulse, Navigation, LogOut, Loader as Loader2, CircleCheck as CheckCircle, Clock, User } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
 import { AlertSentDashboard } from './AlertSentDashboard';
 import { ClientMap } from './ClientMap';
 import { supabase } from '../lib/supabase';
 
 interface HomeDashboardProps {
   onLogout: () => void;
+}
+
+interface AlertRecord {
+  id: string;
+  emergency_type: string;
+  location: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  responder_id?: string;
+  responder?: { name: string; email: string } | null;
 }
 
 export function HomeDashboard({ onLogout }: HomeDashboardProps) {
@@ -15,6 +26,35 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
   const [darkMode, setDarkMode] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [alertError, setAlertError] = useState<string | null>(null);
+  const [alertHistory, setAlertHistory] = useState<AlertRecord[]>([]);
+  const [alertsLoading, setAlertsLoading] = useState(false);
+
+  const fetchAlertHistory = async () => {
+    setAlertsLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('alerts')
+        .select('*')
+        .eq('client_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setAlertHistory((data || []) as AlertRecord[]);
+    } catch (err) {
+      console.error('Failed to fetch alert history:', err);
+    } finally {
+      setAlertsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'alerts') {
+      fetchAlertHistory();
+    }
+  }, [activeTab]);
 
   const triggerEmergency = async () => {
     if (!emergencyType) {
@@ -186,22 +226,77 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
         {/* Other Tabs (Map, Alerts, Settings) - Needs update too for responsive layout */}
         
         {activeTab === 'map' && (
-            <div className="flex flex-col flex-grow w-full h-full p-4">
+            <div className="flex flex-col w-full" style={{ height: 'calc(100vh - 80px)' }}>
                 <ClientMap />
             </div>
         )}
         {activeTab === 'alerts' && (
             <div className={`p-4 ${darkMode ? 'text-white' : 'text-black'}`}>
-                <h2 className="text-xl font-bold uppercase tracking-widest">Alert History</h2>
-                <div className="space-y-4 mt-6">
-                    <div className={`${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-gray-100 border-gray-200'} border p-4 rounded-lg`}>
-                        <div className="flex justify-between items-center mb-2">
-                             <span className="font-bold">MEDICAL ASSISTANCE</span>
-                             <span className="text-green-500 text-xs font-bold uppercase">Resolved</span>
+                <h2 className="text-xl font-bold uppercase tracking-widest mb-6">Alert History</h2>
+                {alertsLoading ? (
+                  <div className="flex items-center justify-center py-16">
+                    <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+                  </div>
+                ) : alertHistory.length === 0 ? (
+                  <div className={`text-center py-16 rounded-xl border ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-gray-50 border-gray-200'}`}>
+                    <Bell className="w-10 h-10 mx-auto mb-3 text-gray-300" />
+                    <p className="text-gray-500 font-medium">No alerts sent yet</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {alertHistory.map((alert) => {
+                      const isResolved = alert.status === 'RESOLVED';
+                      const isActive = alert.status === 'ACTIVE';
+                      const isAccepted = alert.status === 'ACCEPTED';
+                      const statusColor = isResolved
+                        ? 'text-green-600 bg-green-50 border-green-200'
+                        : isAccepted
+                        ? 'text-blue-600 bg-blue-50 border-blue-200'
+                        : 'text-red-600 bg-red-50 border-red-200';
+                      const typeIcon = alert.emergency_type === 'FIRE'
+                        ? <Flame className="w-5 h-5 text-orange-500" />
+                        : alert.emergency_type === 'MEDICAL'
+                        ? <HeartPulse className="w-5 h-5 text-red-500" />
+                        : <AlertCircle className="w-5 h-5 text-yellow-500" />;
+
+                      return (
+                        <div key={alert.id} className={`border rounded-xl p-4 ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'} shadow-sm`}>
+                          <div className="flex justify-between items-start mb-3">
+                            <div className="flex items-center gap-2">
+                              {typeIcon}
+                              <span className="font-bold text-sm uppercase tracking-wide">
+                                {alert.emergency_type === 'FIRE' ? 'Fire Emergency' : alert.emergency_type === 'MEDICAL' ? 'Medical Emergency' : 'Emergency'}
+                              </span>
+                            </div>
+                            <span className={`text-xs font-bold uppercase px-2 py-1 rounded-full border ${statusColor}`}>
+                              {alert.status}
+                            </span>
+                          </div>
+                          <div className="space-y-1.5 text-sm">
+                            <div className="flex items-center gap-2 text-gray-500">
+                              <Clock className="w-3.5 h-3.5 shrink-0" />
+                              <span>{new Date(alert.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-gray-500">
+                              <MapPin className="w-3.5 h-3.5 shrink-0" />
+                              <span>{alert.location || 'Location not recorded'}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-gray-500">
+                              <User className="w-3.5 h-3.5 shrink-0" />
+                              <span>{isResolved ? 'Incident resolved' : isAccepted ? 'Responder en route' : 'Awaiting responder'}</span>
+                            </div>
+                          </div>
+                          {isResolved && (
+                            <div className="mt-3 flex items-center gap-1.5 text-green-600 text-xs font-bold">
+                              <CheckCircle className="w-4 h-4" />
+                              Resolved
+                            </div>
+                          )}
                         </div>
-                        <p className="text-sm text-gray-500">May 5, 2026 • 14:02</p>
-                    </div>
-                </div>
+                      );
+                    })}
+                  </div>
+                )}
             </div>
         )}
         {activeTab === 'settings' && (
