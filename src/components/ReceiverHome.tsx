@@ -1,11 +1,71 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Power } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
 export function ReceiverHome({ onGoToMap }: { onGoToMap: () => void }) {
     const [onDuty, setOnDuty] = useState(false);
+    const [updating, setUpdating] = useState(false);
 
-    const handleToggleDuty = () => {
-        setOnDuty((prev) => !prev);
+    useEffect(() => {
+        const loadOnDutyStatus = async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+
+            const { data, error } = await supabase
+                .from('profiles')
+                .select('on_duty')
+                .eq('id', user.id)
+                .maybeSingle();
+
+            if (!error && data) {
+                setOnDuty(data.on_duty || false);
+            }
+        };
+
+        loadOnDutyStatus();
+
+        const subscription = supabase
+            .channel('responder-duty-channel')
+            .on(
+                'postgres_changes',
+                { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${supabase.auth.getUser().then(({ data }) => data.user?.id)}` },
+                (payload) => {
+                    if (payload.new && (payload.new as any).on_duty !== undefined) {
+                        setOnDuty((payload.new as any).on_duty);
+                    }
+                }
+            )
+            .subscribe();
+
+        return () => {
+            subscription.unsubscribe();
+        };
+    }, []);
+
+    const handleToggleDuty = async () => {
+        setUpdating(true);
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+
+            const newStatus = !onDuty;
+            const { error } = await supabase
+                .from('profiles')
+                .update({
+                    on_duty: newStatus,
+                    latitude: user.user_metadata?.latitude || null,
+                    longitude: user.user_metadata?.longitude || null,
+                    last_location_update: new Date().toISOString()
+                })
+                .eq('id', user.id);
+
+            if (error) throw error;
+            setOnDuty(newStatus);
+        } catch (err) {
+            console.error('Failed to update on-duty status:', err);
+        } finally {
+            setUpdating(false);
+        }
     };
 
     return (
@@ -21,11 +81,12 @@ export function ReceiverHome({ onGoToMap }: { onGoToMap: () => void }) {
             <div className="flex flex-col items-center justify-center flex-grow gap-6">
                 <button
                   onClick={handleToggleDuty}
-                  className={`w-56 h-56 rounded-full flex flex-col items-center justify-center gap-2 transition-all duration-300 shadow-lg border-8 ${onDuty ? 'bg-green-500 border-green-600 shadow-green-200' : 'bg-gray-100 border-gray-200'}`}
+                  disabled={updating}
+                  className={`w-56 h-56 rounded-full flex flex-col items-center justify-center gap-2 transition-all duration-300 shadow-lg border-8 ${onDuty ? 'bg-green-500 border-green-600 shadow-green-200' : 'bg-gray-100 border-gray-200'} ${updating ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}
                 >
-                    <Power className={`w-16 h-16 transition-colors ${onDuty ? 'text-white' : 'text-gray-400'}`} />
+                    <Power className={`w-16 h-16 transition-colors ${onDuty ? 'text-white' : 'text-gray-400'} ${updating ? 'animate-pulse' : ''}`} />
                     <span className={`font-bold text-lg uppercase transition-colors ${onDuty ? 'text-white' : 'text-gray-600'}`}>
-                        {onDuty ? 'On-Duty' : 'Go On-Duty'}
+                        {updating ? 'Updating...' : onDuty ? 'On-Duty' : 'Go On-Duty'}
                     </span>
                 </button>
                 {onDuty && (

@@ -1,5 +1,5 @@
-import { MapPin, Clock, TriangleAlert as AlertTriangle, Flame, HeartPulse, Info, Loader as Loader2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { MapPin, Clock, TriangleAlert as AlertTriangle, Flame, HeartPulse, Info, Loader as Loader2, Volume2, Volume1, Zap } from 'lucide-react';
+import { useEffect, useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 
 interface Alert {
@@ -26,6 +26,68 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const previousAlertsRef = useRef<Set<string>>(new Set());
+
+  const playAlertSound = () => {
+    if (!soundEnabled || !audioRef.current) return;
+
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const now = audioContext.currentTime;
+
+    // Create oscillator for alert sound (siren-like)
+    const osc1 = audioContext.createOscillator();
+    const osc2 = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+
+    osc1.type = 'sine';
+    osc2.type = 'square';
+    osc1.frequency.setValueAtTime(800, now);
+    osc2.frequency.setValueAtTime(1200, now);
+
+    // Create frequency sweep effect
+    osc1.frequency.exponentialRampToValueAtTime(600, now + 0.3);
+    osc2.frequency.exponentialRampToValueAtTime(900, now + 0.3);
+
+    gain.gain.setValueAtTime(0.3, now);
+    gain.gain.exponentialRampToValueAtTime(0.1, now + 0.3);
+
+    osc1.connect(gain);
+    osc2.connect(gain);
+    gain.connect(audioContext.destination);
+
+    osc1.start(now);
+    osc2.start(now);
+    osc1.stop(now + 0.3);
+    osc2.stop(now + 0.3);
+
+    // Play second burst
+    setTimeout(() => {
+      const osc3 = audioContext.createOscillator();
+      const osc4 = audioContext.createOscillator();
+      const gain2 = audioContext.createGain();
+
+      osc3.type = 'sine';
+      osc4.type = 'square';
+      osc3.frequency.setValueAtTime(900, audioContext.currentTime);
+      osc4.frequency.setValueAtTime(1200, audioContext.currentTime);
+      osc3.frequency.exponentialRampToValueAtTime(700, audioContext.currentTime + 0.3);
+      osc4.frequency.exponentialRampToValueAtTime(1000, audioContext.currentTime + 0.3);
+
+      gain2.gain.setValueAtTime(0.3, audioContext.currentTime);
+      gain2.gain.exponentialRampToValueAtTime(0.1, audioContext.currentTime + 0.3);
+
+      osc3.connect(gain2);
+      osc4.connect(gain2);
+      gain2.connect(audioContext.destination);
+
+      osc3.start(audioContext.currentTime);
+      osc4.start(audioContext.currentTime);
+      osc3.stop(audioContext.currentTime + 0.3);
+      osc4.stop(audioContext.currentTime + 0.3);
+    }, 350);
+  };
 
   useEffect(() => {
     fetchAlerts(true);
@@ -35,7 +97,10 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'alerts' },
-        () => {
+        (payload) => {
+          if (payload.eventType === 'INSERT' && payload.new && (payload.new as any).status === 'ACTIVE') {
+            playAlertSound();
+          }
           fetchAlerts(false);
         }
       )
@@ -44,7 +109,7 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
     return () => {
       subscription.unsubscribe();
     };
-  }, []);
+  }, [soundEnabled]);
 
   const fetchAlerts = async (showLoading = true) => {
     try {
@@ -119,7 +184,29 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
 
   return (
     <div className="p-4 lg:p-8 bg-slate-50 min-h-screen">
-      <h2 className="text-3xl font-bold mb-8 text-slate-900">Active Alerts ({alerts.length})</h2>
+      <div className="flex justify-between items-center mb-8">
+        <h2 className="text-3xl font-bold text-slate-900">Active Alerts ({alerts.length})</h2>
+        <button
+          onClick={() => setSoundEnabled(!soundEnabled)}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all ${
+            soundEnabled
+              ? 'bg-blue-600 text-white hover:bg-blue-700'
+              : 'bg-gray-300 text-gray-700 hover:bg-gray-400'
+          }`}
+        >
+          {soundEnabled ? (
+            <>
+              <Volume2 className="w-4 h-4" />
+              Sound On
+            </>
+          ) : (
+            <>
+              <Volume1 className="w-4 h-4 line-through" />
+              Sound Off
+            </>
+          )}
+        </button>
+      </div>
 
       {error && (
         <div className="mb-6 bg-red-50 border border-red-200 text-red-700 text-sm rounded p-4">
