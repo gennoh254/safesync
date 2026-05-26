@@ -49,13 +49,34 @@ export function ReceiverHome({ onGoToMap }: { onGoToMap: () => void }) {
             if (!user) return;
 
             const newStatus = !onDuty;
+
+            // When going on-duty, request location
+            let latitude: number | null = null;
+            let longitude: number | null = null;
+
+            if (newStatus && navigator.geolocation) {
+                try {
+                    const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+                        navigator.geolocation.getCurrentPosition(resolve, reject, {
+                            enableHighAccuracy: true,
+                            timeout: 10000,
+                        });
+                    });
+                    latitude = position.coords.latitude;
+                    longitude = position.coords.longitude;
+                } catch (geoErr) {
+                    console.warn('Could not get location:', geoErr);
+                    // Still allow going on-duty without location
+                }
+            }
+
             const { error } = await supabase
                 .from('profiles')
                 .update({
                     on_duty: newStatus,
-                    latitude: user.user_metadata?.latitude || null,
-                    longitude: user.user_metadata?.longitude || null,
-                    last_location_update: new Date().toISOString()
+                    latitude: newStatus ? latitude : null,
+                    longitude: newStatus ? longitude : null,
+                    last_location_update: newStatus ? new Date().toISOString() : null
                 })
                 .eq('id', user.id);
 
