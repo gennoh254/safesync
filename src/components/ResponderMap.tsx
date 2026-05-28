@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Navigation, Hop as Home, Loader as Loader2, CircleAlert as AlertCircle, Phone, CircleCheck as CheckCircle, Flame, HeartPulse, CircleAlert as AlertTriangle, User, MapPin, CircleAlert as AlertCircle } from 'lucide-react';
+import { Navigation, Hop as Home, Loader as Loader2, CircleAlert as AlertCircle, Phone, CircleCheck as CheckCircle, Flame, HeartPulse, User, MapPin } from 'lucide-react';
 import { SimpleMapView } from './SimpleMapView';
 
 interface AlertLocation {
@@ -185,11 +185,8 @@ export function ResponderMap({ darkMode, acceptedAlert }: { darkMode: boolean; a
   const getAlertIcon = (type: string) => {
     if (type === 'FIRE') return <Flame className="w-4 h-4 text-white" />;
     if (type === 'MEDICAL') return <HeartPulse className="w-4 h-4 text-white" />;
-    return <AlertTriangleIcon className="w-4 h-4 text-white" />;
+    return <AlertCircle className="w-4 h-4 text-white" />;
   };
-
-  // Separate alert icon component for inline use
-  const AlertTriangleIcon = AlertCircle;
 
   const getAlertColor = (type: string) => {
     if (type === 'FIRE') return 'bg-orange-500';
