@@ -1,7 +1,9 @@
+import { APIProvider, Map, AdvancedMarker } from '@vis.gl/react-google-maps';
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Loader as Loader2, CircleAlert as AlertCircle, Users, MapPin, Navigation } from 'lucide-react';
-import { SimpleMapView } from './SimpleMapView';
+import { Navigation, Hop as Home, Loader as Loader2, CircleAlert as AlertCircle, Users } from 'lucide-react';
+
+const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_PLATFORM_KEY || process.env.GOOGLE_MAPS_PLATFORM_KEY || '';
 
 interface ResponderLocation {
   id: string;
@@ -9,7 +11,6 @@ interface ResponderLocation {
   latitude: number;
   longitude: number;
   last_location_update: string | null;
-  on_duty: boolean;
 }
 
 function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -106,8 +107,7 @@ export function ClientMap() {
                   name: newData.name,
                   latitude: newData.latitude,
                   longitude: newData.longitude,
-                  last_location_update: newData.last_location_update,
-                  on_duty: newData.on_duty
+                  last_location_update: newData.last_location_update
                 }];
               }
               return filtered;
@@ -161,15 +161,6 @@ export function ClientMap() {
       }, { responder: responders[0], dist: Infinity })
     : null;
 
-  // Prepare locations for the simple map
-  const mapLocations = responders.map(r => ({
-    lat: r.latitude,
-    lng: r.longitude,
-    name: r.name,
-    type: 'responder' as const,
-    id: r.id
-  }));
-
   return (
     <div className="flex flex-col flex-grow w-full h-full">
       {locationError && (
@@ -187,15 +178,61 @@ export function ClientMap() {
         )}
       </div>
 
-      {/* Simple Map View */}
-      <div className="flex-grow rounded-lg border border-gray-700 overflow-hidden" style={{ minHeight: '350px' }}>
-        <SimpleMapView
-          centerLat={clientLocation.lat}
-          centerLng={clientLocation.lng}
-          locations={mapLocations}
-          title={nearestResponder ? `${nearestResponder.responder.name} en route` : 'Waiting for responders'}
-          mode="client"
-        />
+      {/* Map */}
+      <div className="h-64 lg:h-[350px] relative overflow-hidden rounded-lg border border-gray-700">
+        <APIProvider apiKey={API_KEY} version="weekly">
+          <Map
+            defaultCenter={clientLocation}
+            defaultZoom={14}
+            mapId="CLIENT_MAP_ID"
+            internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
+            style={{ width: '100%', height: '100%' }}
+            gestureHandling="greedy"
+            disableDefaultUI={false}
+          >
+            {/* Client marker (self) */}
+            <AdvancedMarker position={clientLocation}>
+              <div className="relative">
+                <div className="w-10 h-10 bg-green-500 rounded-full border-4 border-white shadow-lg flex items-center justify-center">
+                  <Home className="w-5 h-5 text-white" />
+                </div>
+                <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap bg-green-600 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow">
+                  YOU
+                </div>
+              </div>
+            </AdvancedMarker>
+
+            {/* Responder markers */}
+            {responders.map((responder) => {
+              const dist = haversineDistance(clientLocation.lat, clientLocation.lng, responder.latitude, responder.longitude);
+              return (
+                <AdvancedMarker
+                  key={responder.id}
+                  position={{ lat: responder.latitude, lng: responder.longitude }}
+                >
+                  <div className="relative">
+                    <div className="w-9 h-9 bg-blue-500 rounded-full border-3 border-white shadow-lg flex items-center justify-center">
+                      <Navigation className="w-4 h-4 text-white" />
+                    </div>
+                    <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow">
+                      {dist.toFixed(1)} km
+                    </div>
+                  </div>
+                </AdvancedMarker>
+              );
+            })}
+          </Map>
+        </APIProvider>
+
+        <div className="absolute top-2 left-2 bg-white/90 backdrop-blur-sm px-2 py-1 rounded text-[10px] font-bold text-gray-700 shadow-sm border border-gray-100">
+          LIVE STATUS
+        </div>
+
+        {responders.length > 0 && (
+          <div className="absolute top-2 right-2 bg-blue-600 text-white px-2 py-1 rounded text-[10px] font-bold shadow-sm">
+            {responders.length} RESPONDER{responders.length !== 1 ? 'S' : ''} ONLINE
+          </div>
+        )}
       </div>
 
       {/* Info panel */}
