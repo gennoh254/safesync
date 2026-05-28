@@ -1,9 +1,7 @@
-import { APIProvider, Map, AdvancedMarker } from '@vis.gl/react-google-maps';
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Navigation, Hop as Home, Loader as Loader2, CircleAlert as AlertCircle, MapPin, Users } from 'lucide-react';
-
-const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_PLATFORM_KEY || '';
+import { Loader as Loader2, CircleAlert as AlertCircle, Users, MapPin, Navigation } from 'lucide-react';
+import { SimpleMapView } from './SimpleMapView';
 
 interface ResponderLocation {
   id: string;
@@ -30,7 +28,6 @@ export function ClientMap() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
-  const [mapLoadError, setMapLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -132,21 +129,10 @@ export function ClientMap() {
       if (mounted && data) setResponders(data as ResponderLocation[]);
     }, 15000);
 
-    // Timeout to detect if map fails to load (API key issues)
-    const mapTimeout = setTimeout(() => {
-      if (API_KEY && mounted && !mapLoadError) {
-        // Check if Google Maps loaded successfully by looking for the google object
-        if (typeof (window as any).google === 'undefined' || !(window as any).google?.maps) {
-          setMapLoadError('Google Maps failed to load. The API key may have restrictions or is invalid.');
-        }
-      }
-    }, 5000);
-
     return () => {
       mounted = false;
       channel.unsubscribe();
       clearInterval(interval);
-      clearTimeout(mapTimeout);
     };
   }, []);
 
@@ -175,56 +161,14 @@ export function ClientMap() {
       }, { responder: responders[0], dist: Infinity })
     : null;
 
-  // Render fallback if Google Maps API key is missing or map failed to load
-  if (!API_KEY || mapLoadError) {
-    return (
-      <div className="flex flex-col w-full h-full">
-        {locationError && (
-          <div className="bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded p-2 mb-3">
-            {locationError}
-          </div>
-        )}
-        {mapLoadError && (
-          <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded p-2 mb-3">
-            {mapLoadError}
-          </div>
-        )}
-        <div className="flex-grow rounded-lg border border-gray-300 bg-gray-100 flex flex-col items-center justify-center p-8">
-          <MapPin className="w-12 h-12 text-gray-400 mb-4" />
-          <h3 className="text-lg font-bold text-gray-700 mb-2">Map Unavailable</h3>
-          <p className="text-gray-500 text-center text-sm mb-4">
-            {!API_KEY
-              ? 'Google Maps API key is not configured. Contact your administrator.'
-              : 'Unable to load Google Maps. The API key may have restrictions.'}
-          </p>
-          <div className="bg-white rounded-lg shadow-md p-6 w-full max-w-md">
-            <h4 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
-              <Users className="w-5 h-5 text-blue-500" />
-              Online Responders ({responders.length})
-            </h4>
-            {responders.length === 0 ? (
-              <p className="text-gray-500 text-sm">No responders currently online. When a responder goes on-duty and shares their location, they will appear here.</p>
-            ) : (
-              <div className="space-y-2">
-                {responders.map((r) => {
-                  const dist = haversineDistance(clientLocation.lat, clientLocation.lng, r.latitude, r.longitude);
-                  return (
-                    <div key={r.id} className="flex justify-between items-center bg-gray-50 p-3 rounded">
-                      <span className="font-medium text-gray-800">{r.name}</span>
-                      <span className="text-sm text-blue-600 font-bold">{dist.toFixed(1)} km away</span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            <p className="text-xs text-gray-400 mt-4 text-center">
-              Your location: {clientLocation.lat.toFixed(4)}, {clientLocation.lng.toFixed(4)}
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // Prepare locations for the simple map
+  const mapLocations = responders.map(r => ({
+    lat: r.latitude,
+    lng: r.longitude,
+    name: r.name,
+    type: 'responder' as const,
+    id: r.id
+  }));
 
   return (
     <div className="flex flex-col flex-grow w-full h-full">
@@ -234,78 +178,24 @@ export function ClientMap() {
         </div>
       )}
 
-      {mapLoadError && (
-        <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded p-2 mb-3">
-          {mapLoadError}
-        </div>
-      )}
-
       <div className="flex justify-between items-center mb-3">
         <h2 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Help Status</h2>
         {nearestResponder && (
-          <div className="bg-red-900/30 text-red-500 px-3 py-1 rounded text-xs font-bold border border-red-900/50">
-            ETA: {Math.max(1, Math.round(nearestResponder.dist / 0.5))} MINS
+          <div className="bg-green-900/30 text-green-500 px-3 py-1 rounded text-xs font-bold border border-green-900/50">
+            ETA: ~{Math.max(1, Math.round(nearestResponder.dist / 0.5))} MINS
           </div>
         )}
       </div>
 
-      <div className="relative flex-grow rounded-lg border border-gray-800 overflow-hidden" style={{ minHeight: '400px' }}>
-        <APIProvider
-          apiKey={API_KEY}
-          version="weekly"
-          onError={(e: Error) => {
-            console.error('Google Maps API error:', e);
-            setMapLoadError('Failed to load Google Maps. The API key may have access restrictions. Please check the Google Cloud Console.');
-          }}
-        >
-          <Map
-            defaultCenter={clientLocation}
-            defaultZoom={14}
-            style={{ width: '100%', height: '100%', minHeight: '400px' }}
-            gestureHandling="greedy"
-            disableDefaultUI={false}
-            className="rounded-lg"
-          >
-            {/* Client marker */}
-            <AdvancedMarker position={clientLocation}>
-              <div className="relative">
-                <div className="w-10 h-10 bg-red-600 rounded-full border-4 border-white shadow-lg flex items-center justify-center">
-                  <Home className="w-5 h-5 text-white" />
-                </div>
-                <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap bg-red-600 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow">
-                  YOU
-                </div>
-              </div>
-            </AdvancedMarker>
-
-            {/* Responder markers */}
-            {responders.map((r) => {
-              const dist = haversineDistance(clientLocation.lat, clientLocation.lng, r.latitude, r.longitude);
-              return (
-                <AdvancedMarker key={r.id} position={{ lat: r.latitude, lng: r.longitude }}>
-                  <div className="relative">
-                    <div className="w-9 h-9 bg-blue-500 rounded-full border-3 border-white shadow-lg flex items-center justify-center animate-pulse">
-                      <Navigation className="w-4 h-4 text-white" />
-                    </div>
-                    <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow">
-                      {dist.toFixed(1)} km
-                    </div>
-                  </div>
-                </AdvancedMarker>
-              );
-            })}
-          </Map>
-        </APIProvider>
-
-        <div className="absolute top-2 left-2 bg-white/90 backdrop-blur-sm px-2 py-1 rounded text-[10px] font-bold text-gray-700 shadow-sm border border-gray-100">
-          LIVE STATUS
-        </div>
-
-        {responders.length > 0 && (
-          <div className="absolute top-2 right-2 bg-blue-600 text-white px-2 py-1 rounded text-[10px] font-bold shadow-sm">
-            {responders.length} RESPONDER{responders.length !== 1 ? 'S' : ''} ONLINE
-          </div>
-        )}
+      {/* Simple Map View */}
+      <div className="flex-grow rounded-lg border border-gray-700 overflow-hidden" style={{ minHeight: '350px' }}>
+        <SimpleMapView
+          centerLat={clientLocation.lat}
+          centerLng={clientLocation.lng}
+          locations={mapLocations}
+          title={nearestResponder ? `${nearestResponder.responder.name} en route` : 'Waiting for responders'}
+          mode="client"
+        />
       </div>
 
       {/* Info panel */}
@@ -314,15 +204,50 @@ export function ClientMap() {
           <>
             <p className="text-sm font-bold text-gray-400 uppercase tracking-wider">Nearest responder en route</p>
             <p className="text-xl font-bold text-white mt-1">
-              {nearestResponder.dist.toFixed(1)} km away
+              {nearestResponder.responder.name}
+            </p>
+            <p className="text-blue-400 font-bold">
+              {nearestResponder.dist.toFixed(2)} km away
             </p>
           </>
         ) : responders.length > 0 ? (
-          <p className="text-sm font-bold text-gray-400 uppercase tracking-wider">Responders available</p>
+          <p className="text-sm font-bold text-gray-400 uppercase tracking-wider">Responders available but not on-duty</p>
         ) : (
-          <p className="text-sm font-bold text-gray-400 uppercase tracking-wider">No responders online yet</p>
+          <div className="space-y-2">
+            <p className="text-sm font-bold text-gray-400 uppercase tracking-wider">No responders online yet</p>
+            <p className="text-xs text-gray-500">When responders go on-duty and share their location, they will appear here</p>
+          </div>
         )}
       </div>
+
+      {/* Responder list */}
+      {responders.length > 0 && (
+        <div className="mt-4 bg-gray-900 border border-gray-800 p-4 rounded-lg">
+          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+            <Users className="w-4 h-4" />
+            Online Responders ({responders.length})
+          </h3>
+          <div className="space-y-2">
+            {responders.map(r => {
+              const dist = haversineDistance(clientLocation.lat, clientLocation.lng, r.latitude, r.longitude);
+              return (
+                <div key={r.id} className="flex justify-between items-center bg-gray-800 p-3 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
+                      <Navigation className="w-4 h-4 text-white" />
+                    </div>
+                    <span className="font-medium text-white">{r.name}</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-blue-400 font-bold text-sm">{dist.toFixed(2)} km</span>
+                    <p className="text-xs text-gray-500">~{Math.max(1, Math.round(dist / 0.5))} min ETA</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="mt-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded p-3">

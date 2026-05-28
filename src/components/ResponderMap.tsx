@@ -1,9 +1,7 @@
-import { APIProvider, Map, AdvancedMarker } from '@vis.gl/react-google-maps';
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Navigation, Hop as Home, Loader as Loader2, CircleAlert as AlertCircle, Phone, CircleCheck as CheckCircle, Flame, HeartPulse, CircleAlert as AlertTriangle, User } from 'lucide-react';
-
-const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_PLATFORM_KEY || process.env.GOOGLE_MAPS_PLATFORM_KEY || '';
+import { Navigation, Hop as Home, Loader as Loader2, CircleAlert as AlertCircle, Phone, CircleCheck as CheckCircle, Flame, HeartPulse, CircleAlert as AlertTriangle, User, MapPin, CircleAlert as AlertCircle } from 'lucide-react';
+import { SimpleMapView } from './SimpleMapView';
 
 interface AlertLocation {
   id: string;
@@ -50,6 +48,22 @@ export function ResponderMap({ darkMode, acceptedAlert }: { darkMode: boolean; a
   const [selectedAlert, setSelectedAlert] = useState<AlertLocation | null>(acceptedAlert || null);
   const [clientInfo, setClientInfo] = useState<ClientInfo | null>(null);
 
+  // Set selected alert from acceptedAlert prop
+  useEffect(() => {
+    if (acceptedAlert) {
+      setSelectedAlert({
+        id: acceptedAlert.id,
+        emergency_type: acceptedAlert.emergency_type,
+        location: acceptedAlert.location,
+        latitude: acceptedAlert.latitude,
+        longitude: acceptedAlert.longitude,
+        status: 'ACCEPTED',
+        client_id: acceptedAlert.client_id,
+        created_at: new Date().toISOString()
+      });
+    }
+  }, [acceptedAlert]);
+
   // Fetch client info when selected alert changes
   useEffect(() => {
     const fetchClientInfo = async () => {
@@ -95,20 +109,20 @@ export function ResponderMap({ darkMode, acceptedAlert }: { darkMode: boolean; a
             () => {
               if (!mounted) return;
               setResponderLocation({ lat: -1.2921, lng: 36.8219 });
-              setLocationError('Location access denied — using default location');
+              setLocationError('Location access denied — using default location (Nairobi)');
             },
             { enableHighAccuracy: true, timeout: 10000 }
           );
         } else {
           setResponderLocation({ lat: -1.2921, lng: 36.8219 });
-          setLocationError('Geolocation not supported — using default location');
+          setLocationError('Geolocation not supported — using default location (Nairobi)');
         }
 
         // Fetch active alerts with location data
         const { data, error: fetchError } = await supabase
           .from('alerts')
           .select('*')
-          .eq('status', 'ACTIVE')
+          .eq('status', 'ACCEPTED')
           .not('latitude', 'is', null)
           .not('longitude', 'is', null)
           .order('created_at', { ascending: false });
@@ -140,7 +154,7 @@ export function ResponderMap({ darkMode, acceptedAlert }: { darkMode: boolean; a
       const { data } = await supabase
         .from('alerts')
         .select('*')
-        .eq('status', 'ACTIVE')
+        .eq('status', 'ACCEPTED')
         .not('latitude', 'is', null)
         .not('longitude', 'is', null)
         .order('created_at', { ascending: false });
@@ -171,8 +185,11 @@ export function ResponderMap({ darkMode, acceptedAlert }: { darkMode: boolean; a
   const getAlertIcon = (type: string) => {
     if (type === 'FIRE') return <Flame className="w-4 h-4 text-white" />;
     if (type === 'MEDICAL') return <HeartPulse className="w-4 h-4 text-white" />;
-    return <AlertTriangle className="w-4 h-4 text-white" />;
+    return <AlertTriangleIcon className="w-4 h-4 text-white" />;
   };
+
+  // Separate alert icon component for inline use
+  const AlertTriangleIcon = AlertCircle;
 
   const getAlertColor = (type: string) => {
     if (type === 'FIRE') return 'bg-orange-500';
@@ -202,6 +219,28 @@ export function ResponderMap({ darkMode, acceptedAlert }: { darkMode: boolean; a
     ? haversineDistance(responderLocation.lat, responderLocation.lng, selectedAlert.latitude, selectedAlert.longitude)
     : null;
 
+  // Prepare locations for the simple map
+  const mapLocations = alerts
+    .filter(a => !selectedAlert || a.id !== selectedAlert.id)
+    .map(alert => ({
+      lat: alert.latitude,
+      lng: alert.longitude,
+      name: alert.emergency_type,
+      type: 'client' as const,
+      id: alert.id
+    }));
+
+  // Add selected alert to map if exists
+  if (selectedAlert && selectedAlert.latitude && selectedAlert.longitude) {
+    mapLocations.push({
+      lat: selectedAlert.latitude,
+      lng: selectedAlert.longitude,
+      name: selectedAlert.emergency_type,
+      type: 'client' as const,
+      id: selectedAlert.id
+    });
+  }
+
   return (
     <div className={`flex flex-col flex-grow w-full h-full ${darkMode ? 'bg-black text-white' : 'bg-white text-black'} font-sans`}>
       {locationError && (
@@ -211,81 +250,28 @@ export function ResponderMap({ darkMode, acceptedAlert }: { darkMode: boolean; a
       )}
 
       {/* Map */}
-      <div className="h-64 lg:h-[500px] relative overflow-hidden rounded-lg border border-gray-200">
-        <APIProvider apiKey={API_KEY} version="weekly">
-          <Map
-            defaultCenter={selectedAlert?.latitude && selectedAlert?.longitude
-              ? { lat: selectedAlert.latitude, lng: selectedAlert.longitude }
-              : responderLocation}
-            defaultZoom={14}
-            mapId="RESPONDER_MAP_ID"
-            internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
-            style={{ width: '100%', height: '100%' }}
-            gestureHandling="greedy"
-            disableDefaultUI={false}
-          >
-            {/* Responder marker (self) */}
-            <AdvancedMarker position={responderLocation}>
-              <div className="relative">
-                <div className="w-10 h-10 bg-blue-500 rounded-full border-4 border-white shadow-lg flex items-center justify-center">
-                  <Navigation className="w-5 h-5 text-white" />
-                </div>
-                <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow">
-                  YOU
-                </div>
-              </div>
-            </AdvancedMarker>
+      <div className="h-64 lg:h-[350px] relative overflow-hidden rounded-lg border border-gray-700">
+        <SimpleMapView
+          centerLat={selectedAlert?.latitude || responderLocation.lat}
+          centerLng={selectedAlert?.longitude || responderLocation.lng}
+          locations={mapLocations}
+          title={selectedAlert ? `${selectedAlert.emergency_type} Emergency - ${selectedAlert.location}` : 'Responder View'}
+          mode="responder"
+        />
 
-            {/* Selected/target alert marker */}
-            {selectedAlert && selectedAlert.latitude && selectedAlert.longitude && (
-              <AdvancedMarker position={{ lat: selectedAlert.latitude, lng: selectedAlert.longitude }}>
-                <div className="relative">
-                  <div className={`w-12 h-12 ${getAlertColor(selectedAlert.emergency_type)} rounded-full border-4 border-white shadow-lg flex items-center justify-center animate-pulse`}>
-                    {getAlertIcon(selectedAlert.emergency_type)}
-                  </div>
-                  <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap bg-red-600 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow">
-                    {selectedAlert.emergency_type}
-                  </div>
-                </div>
-              </AdvancedMarker>
-            )}
-
-            {/* Other alert markers */}
-            {alerts.filter(a => !selectedAlert || a.id !== selectedAlert.id).map((alert) => {
-              const dist = haversineDistance(responderLocation.lat, responderLocation.lng, alert.latitude, alert.longitude);
-              return (
-                <AdvancedMarker
-                  key={alert.id}
-                  position={{ lat: alert.latitude, lng: alert.longitude }}
-                  onClick={() => setSelectedAlert(alert)}
-                >
-                  <div className="relative cursor-pointer">
-                    <div className={`w-9 h-9 ${getAlertColor(alert.emergency_type)} rounded-full border-3 border-white shadow-lg flex items-center justify-center`}>
-                      {getAlertIcon(alert.emergency_type)}
-                    </div>
-                    <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap bg-gray-800 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow">
-                      {dist.toFixed(1)} km
-                    </div>
-                  </div>
-                </AdvancedMarker>
-              );
-            })}
-          </Map>
-        </APIProvider>
-
-        <div className="absolute top-2 left-2 bg-white/90 backdrop-blur-sm px-2 py-1 rounded text-[10px] font-bold text-gray-700 shadow-sm border border-gray-100">
-          LIVE STATUS
-        </div>
-
-        {alerts.length > 0 && !selectedAlert && (
-          <div className="absolute top-2 right-2 bg-red-600 text-white px-2 py-1 rounded text-[10px] font-bold shadow-sm">
-            {alerts.length} ACTIVE ALERT{alerts.length !== 1 ? 'S' : ''}
+        {/* Overlay for selected alert */}
+        {selectedAlert && (
+          <div className={`absolute top-2 left-2 right-2 p-2 rounded-lg shadow-md ${getAlertColor(selectedAlert.emergency_type)} text-white`}>
+            <div className="flex items-center gap-2">
+              {getAlertIcon(selectedAlert.emergency_type)}
+              <span className="font-bold text-sm uppercase">{selectedAlert.emergency_type} Emergency</span>
+            </div>
           </div>
         )}
       </div>
 
       {/* Selected alert detail / Info panel */}
-      <div className="p-6">
+      <div className="p-4">
         {selectedAlert ? (
           <div className={`p-4 rounded-lg border ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-gray-50 border-gray-200'}`}>
             <div className="flex justify-between items-start mb-3">
@@ -295,7 +281,7 @@ export function ResponderMap({ darkMode, acceptedAlert }: { darkMode: boolean; a
                    selectedAlert.emergency_type === 'MEDICAL' ? 'Medical Emergency' : 'Emergency'}
                 </h3>
                 <p className="text-sm text-gray-500 flex items-center gap-1 mt-1">
-                  <Home className="w-3 h-3" />
+                  <MapPin className="w-3 h-3" />
                   {selectedAlert.location}
                 </p>
               </div>
@@ -362,24 +348,49 @@ export function ResponderMap({ darkMode, acceptedAlert }: { darkMode: boolean; a
             <div className={`p-4 rounded-lg flex items-center justify-between mb-6 ${darkMode ? 'bg-gray-900' : 'bg-gray-100'}`}>
               <span className="text-gray-600">
                 {alerts.length > 0
-                  ? 'Click on an alert marker to see details'
+                  ? 'Click on an alert to see details'
                   : 'No active alerts to respond to'}
               </span>
               {alerts.length > 0 && (
                 <span className="text-blue-600 font-bold">{alerts.length} pending</span>
               )}
             </div>
+
+            {/* Alert list */}
             {alerts.length > 0 && (
-              <p className="text-sm text-gray-500 text-center">
-                Select a marker on the map to view emergency details
-              </p>
+              <div className="space-y-2">
+                {alerts.map(alert => {
+                  const dist = haversineDistance(responderLocation.lat, responderLocation.lng, alert.latitude, alert.longitude);
+                  return (
+                    <button
+                      key={alert.id}
+                      onClick={() => setSelectedAlert(alert)}
+                      className={`w-full p-3 rounded-lg flex items-center justify-between ${darkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-white hover:bg-gray-50 border border-gray-200'} transition-colors`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-full ${getAlertColor(alert.emergency_type)} flex items-center justify-center`}>
+                          {getAlertIcon(alert.emergency_type)}
+                        </div>
+                        <div className="text-left">
+                          <p className="font-bold">{alert.emergency_type}</p>
+                          <p className="text-xs text-gray-500 truncate max-w-[200px]">{alert.location}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-bold text-blue-600">{dist.toFixed(1)} km</p>
+                        <p className="text-xs text-gray-500">~{Math.max(1, Math.round(dist / 0.5))} min</p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             )}
           </>
         )}
       </div>
 
       {error && (
-        <div className="mx-6 mb-4 bg-red-50 border border-red-200 text-red-700 text-xs rounded p-3">
+        <div className="mx-4 mb-4 bg-red-50 border border-red-200 text-red-700 text-xs rounded p-3">
           {error}
         </div>
       )}
