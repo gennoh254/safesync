@@ -48,12 +48,12 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Get the client's latest active alert
+      // Get the client's latest active or accepted alert
       const { data: alerts } = await supabase
         .from('alerts')
         .select('*')
         .eq('client_id', user.id)
-        .eq('status', 'ACTIVE')
+        .in('status', ['ACTIVE', 'ACCEPTED'])
         .order('created_at', { ascending: false })
         .limit(1);
 
@@ -61,6 +61,14 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
         const alert = alerts[0] as AlertData;
         setAlertData(alert);
         setLoading(false);
+
+        // If alert is already accepted, redirect to map
+        if (alert.status === 'ACCEPTED') {
+          setStatusStep('accepted');
+          setTimeout(() => {
+            if (mounted) setActiveTab('map');
+          }, 500);
+        }
 
         // Check for responders nearby
         const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
@@ -83,13 +91,15 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
           setDistance(nearest.dist);
           setEta(Math.max(1, Math.round(nearest.dist / 0.5)));
 
-          // Simulate status progression
-          setTimeout(() => {
-            if (mounted) setStatusStep('accepted');
-          }, 3000);
-          setTimeout(() => {
-            if (mounted) setStatusStep('dispatched');
-          }, 6000);
+          // Simulate status progression only if not already accepted
+          if (alert.status !== 'ACCEPTED') {
+            setTimeout(() => {
+              if (mounted) setStatusStep('accepted');
+            }, 3000);
+            setTimeout(() => {
+              if (mounted) setStatusStep('dispatched');
+            }, 6000);
+          }
         }
       } else if (mounted) {
         setLoading(false);
@@ -109,6 +119,10 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
             const updated = payload.new as AlertData;
             if (updated.status === 'ACCEPTED') {
               setStatusStep('accepted');
+              // Redirect to map when alert is accepted
+              setTimeout(() => {
+                if (mounted) setActiveTab('map');
+              }, 500);
             }
           }
         }
@@ -119,7 +133,7 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
       mounted = false;
       channel.unsubscribe();
     };
-  }, []);
+  }, [setActiveTab]);
 
   if (loading) {
     return (
