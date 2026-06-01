@@ -62,12 +62,9 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
         setAlertData(alert);
         setLoading(false);
 
-        // If alert is already accepted, redirect to map
+        // If alert is already accepted, update status step
         if (alert.status === 'ACCEPTED') {
           setStatusStep('accepted');
-          setTimeout(() => {
-            if (mounted) setActiveTab('map');
-          }, 500);
         }
 
         // Check for responders nearby
@@ -91,15 +88,17 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
           setDistance(nearest.dist);
           setEta(Math.max(1, Math.round(nearest.dist / 0.5)));
 
-          // Simulate status progression only if not already accepted
-          if (alert.status !== 'ACCEPTED') {
-            setTimeout(() => {
-              if (mounted) setStatusStep('accepted');
-            }, 3000);
-            setTimeout(() => {
-              if (mounted) setStatusStep('dispatched');
-            }, 6000);
-          }
+        // Simulate status progression only if not already accepted
+        if (alert.status !== 'ACCEPTED') {
+          setTimeout(() => {
+            if (mounted) setStatusStep('accepted');
+          }, 3000);
+          setTimeout(() => {
+            if (mounted) setStatusStep('dispatched');
+          }, 6000);
+        } else {
+          setStatusStep('accepted');
+        }
         }
       } else if (mounted) {
         setLoading(false);
@@ -119,10 +118,6 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
             const updated = payload.new as AlertData;
             if (updated.status === 'ACCEPTED') {
               setStatusStep('accepted');
-              // Redirect to map when alert is accepted
-              setTimeout(() => {
-                if (mounted) setActiveTab('map');
-              }, 500);
             }
           }
         }
@@ -133,7 +128,7 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
       mounted = false;
       channel.unsubscribe();
     };
-  }, [setActiveTab]);
+  }, []);
 
   if (loading) {
     return (
@@ -298,9 +293,16 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
             </div>
           </div>
 
-          <button onClick={() => setShowConfirmCancel(true)} className={`w-full ${darkMode ? 'bg-gray-900 text-gray-300 border-gray-700' : 'bg-gray-200 text-gray-800 border-gray-300'} border py-3 rounded font-bold hover:bg-gray-800 transition-all text-sm`}>
-            Cancel Alert
-          </button>
+          {statusStep >= 'accepted' ? (
+            <button onClick={() => setActiveTab('map')} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded font-bold transition-all text-sm flex items-center justify-center gap-2">
+              <MapIcon className="w-5 h-5" />
+              VIEW MAP
+            </button>
+          ) : (
+            <button onClick={() => setShowConfirmCancel(true)} className={`w-full ${darkMode ? 'bg-gray-900 text-gray-300 border-gray-700' : 'bg-gray-200 text-gray-800 border-gray-300'} border py-3 rounded font-bold hover:bg-gray-800 transition-all text-sm`}>
+              Cancel Alert
+            </button>
+          )}
         </div>
     </div>
   );
