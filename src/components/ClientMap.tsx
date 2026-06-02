@@ -1,4 +1,4 @@
-import { APIProvider, Map, AdvancedMarker } from '@vis.gl/react-google-maps';
+import { APIProvider, Map, AdvancedMarker, Polyline } from '@vis.gl/react-google-maps';
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { Navigation, Hop as Home, Loader as Loader2, CircleAlert as AlertCircle, Users } from 'lucide-react';
@@ -13,6 +13,12 @@ interface ResponderLocation {
   last_location_update: string | null;
 }
 
+interface RouteInfo {
+  distance: number;
+  duration: number;
+  polyline: Array<{ lat: number; lng: number }>;
+}
+
 function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -23,18 +29,77 @@ function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: numbe
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function decodePolyline(encoded: string): Array<{ lat: number; lng: number }> {
+  const poly = [];
+  let index = 0, lat = 0, lng = 0;
+  while (index < encoded.length) {
+    let result = 0, shift = 0;
+    let b;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    const dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+    lat += dlat;
+    result = 0;
+    shift = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    const dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+    lng += dlng;
+    poly.push({ lat: lat / 1e5, lng: lng / 1e5 });
+  }
+  return poly;
+}
+
 export function ClientMap() {
   const [clientLocation, setClientLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [responders, setResponders] = useState<ResponderLocation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
+  const [activeAlert, setActiveAlert] = useState<any>(null);
+  const [routeInfo, setRouteInfo] = useState<RouteInfo | null>(null);
+  const [activeAlertResponder, setActiveAlertResponder] = useState<ResponderLocation | null>(null);
 
   useEffect(() => {
     let mounted = true;
 
     const init = async () => {
       try {
+        // Get active alert if it exists
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: alerts } = await supabase
+            .from('alerts')
+            .select('*')
+            .eq('client_id', user.id)
+            .eq('status', 'ACCEPTED')
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+          if (alerts && alerts.length > 0 && mounted) {
+            setActiveAlert(alerts[0]);
+
+            // Get responder info for this alert
+            if (alerts[0].responder_id) {
+              const { data: responderData } = await supabase
+                .from('profiles')
+                .select('id, name, latitude, longitude')
+                .eq('id', alerts[0].responder_id)
+                .maybeSingle();
+
+              if (responderData && mounted) {
+                setActiveAlertResponder(responderData as ResponderLocation);
+              }
+            }
+          }
+        }
+
         // Get client's real location
         if (navigator.geolocation) {
           navigator.geolocation.getCurrentPosition(
@@ -112,6 +177,29 @@ export function ClientMap() {
               }
               return filtered;
             });
+
+            // Update active alert responder location if this is them
+            if (activeAlertResponder && newData.id === activeAlertResponder.id && newData.latitude && newData.longitude) {
+              setActiveAlertResponder({
+                ...activeAlertResponder,
+                latitude: newData.latitude,
+                longitude: newData.longitude
+              });
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    // Subscribe to alert changes
+    const alertChannel = supabase
+      .channel('client-alert-channel')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'alerts' },
+        (payload) => {
+          if (payload.new && (payload.new as any).status === 'ACCEPTED') {
+            setActiveAlert(payload.new);
           }
         }
       )
@@ -132,9 +220,10 @@ export function ClientMap() {
     return () => {
       mounted = false;
       channel.unsubscribe();
+      alertChannel.unsubscribe();
       clearInterval(interval);
     };
-  }, []);
+  }, [activeAlertResponder]);
 
   if (loading) {
     return (
@@ -171,12 +260,24 @@ export function ClientMap() {
 
       <div className="flex justify-between items-center mb-3">
         <h2 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Help Status</h2>
-        {nearestResponder && (
+        {activeAlertResponder ? (
+          <div className="bg-green-900/30 text-green-500 px-3 py-1 rounded text-xs font-bold border border-green-900/50">
+            ETA: ~{Math.max(1, Math.round(haversineDistance(clientLocation!.lat, clientLocation!.lng, activeAlertResponder.latitude, activeAlertResponder.longitude) / 0.5))} MINS
+          </div>
+        ) : nearestResponder && (
           <div className="bg-green-900/30 text-green-500 px-3 py-1 rounded text-xs font-bold border border-green-900/50">
             ETA: ~{Math.max(1, Math.round(nearestResponder.dist / 0.5))} MINS
           </div>
         )}
       </div>
+
+      {/* Alert Status */}
+      {activeAlert && (
+        <div className="mb-3 bg-green-50 border border-green-200 rounded-lg p-3">
+          <p className="text-xs font-bold text-green-700 uppercase tracking-wide">Active Emergency Alert</p>
+          <p className="text-sm font-bold text-green-600 mt-1">{activeAlertResponder?.name} is en route</p>
+        </div>
+      )}
 
       {/* Map */}
       <div className="h-64 lg:h-[350px] relative overflow-hidden rounded-lg border border-gray-700">
@@ -190,20 +291,48 @@ export function ClientMap() {
             gestureHandling="greedy"
             disableDefaultUI={false}
           >
+            {/* Route from responder to client */}
+            {activeAlertResponder && clientLocation && (
+              <Polyline
+                path={[
+                  { lat: activeAlertResponder.latitude, lng: activeAlertResponder.longitude },
+                  { lat: clientLocation.lat, lng: clientLocation.lng }
+                ]}
+                geodesic={true}
+                strokeColor="#0ea5e9"
+                strokeOpacity={0.8}
+                strokeWeight={4}
+              />
+            )}
+
             {/* Client marker (self) */}
             <AdvancedMarker position={clientLocation}>
               <div className="relative">
-                <div className="w-10 h-10 bg-green-500 rounded-full border-4 border-white shadow-lg flex items-center justify-center">
+                <div className="w-10 h-10 bg-red-600 rounded-full border-4 border-white shadow-lg flex items-center justify-center">
                   <Home className="w-5 h-5 text-white" />
                 </div>
-                <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap bg-green-600 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow">
-                  YOU
+                <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap bg-red-600 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow">
+                  YOUR LOCATION
                 </div>
               </div>
             </AdvancedMarker>
 
-            {/* Responder markers */}
-            {responders.map((responder) => {
+            {/* Active alert responder marker */}
+            {activeAlertResponder && (
+              <AdvancedMarker position={{ lat: activeAlertResponder.latitude, lng: activeAlertResponder.longitude }}>
+                <div className="relative">
+                  <div className="w-10 h-10 bg-blue-600 rounded-full border-4 border-white shadow-lg flex items-center justify-center animate-pulse">
+                    <Navigation className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow">
+                    {activeAlertResponder.name}
+                  </div>
+                </div>
+              </AdvancedMarker>
+            )}
+
+            {/* Other responder markers */}
+            {responders.filter(r => !activeAlertResponder || r.id !== activeAlertResponder.id).map((responder) => {
               const dist = haversineDistance(clientLocation.lat, clientLocation.lng, responder.latitude, responder.longitude);
               return (
                 <AdvancedMarker
@@ -211,10 +340,10 @@ export function ClientMap() {
                   position={{ lat: responder.latitude, lng: responder.longitude }}
                 >
                   <div className="relative">
-                    <div className="w-9 h-9 bg-blue-500 rounded-full border-3 border-white shadow-lg flex items-center justify-center">
+                    <div className="w-9 h-9 bg-slate-500 rounded-full border-3 border-white shadow-lg flex items-center justify-center">
                       <Navigation className="w-4 h-4 text-white" />
                     </div>
-                    <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow">
+                    <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap bg-slate-600 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow">
                       {dist.toFixed(1)} km
                     </div>
                   </div>
@@ -225,7 +354,7 @@ export function ClientMap() {
         </APIProvider>
 
         <div className="absolute top-2 left-2 bg-white/90 backdrop-blur-sm px-2 py-1 rounded text-[10px] font-bold text-gray-700 shadow-sm border border-gray-100">
-          LIVE STATUS
+          LIVE TRACKING
         </div>
 
         {responders.length > 0 && (
@@ -237,9 +366,20 @@ export function ClientMap() {
 
       {/* Info panel */}
       <div className="mt-4 bg-gray-900 border border-gray-800 p-4 rounded-lg text-center">
-        {nearestResponder ? (
+        {activeAlertResponder ? (
           <>
-            <p className="text-sm font-bold text-gray-400 uppercase tracking-wider">Nearest responder en route</p>
+            <p className="text-sm font-bold text-gray-400 uppercase tracking-wider">Responder En Route</p>
+            <p className="text-xl font-bold text-white mt-1">
+              {activeAlertResponder.name}
+            </p>
+            <p className="text-blue-400 font-bold">
+              {haversineDistance(clientLocation!.lat, clientLocation!.lng, activeAlertResponder.latitude, activeAlertResponder.longitude).toFixed(2)} km away
+            </p>
+            <p className="text-xs text-gray-400 mt-2">Blue line shows the shortest route</p>
+          </>
+        ) : nearestResponder ? (
+          <>
+            <p className="text-sm font-bold text-gray-400 uppercase tracking-wider">Nearest responder available</p>
             <p className="text-xl font-bold text-white mt-1">
               {nearestResponder.responder.name}
             </p>

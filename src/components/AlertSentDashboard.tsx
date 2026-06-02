@@ -251,47 +251,18 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
                     )}
                 </Map>
             </APIProvider>
-            <div className="absolute top-2 left-2 bg-white/80 backdrop-blur-sm px-2 py-1 rounded text-[10px] font-bold text-gray-700 shadow-sm border border-gray-100">
-                LIVE STATUS
-            </div>
           </div>
 
-          {/* Status Progress */}
-          <div className={`${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-gray-100 border-gray-200'} border rounded-lg p-4 mb-4`}>
-            <div className={`relative border-l-2 ${darkMode ? 'border-gray-700' : 'border-gray-300'} ml-2 pl-4 space-y-4`}>
-                <div className="relative">
-                    <div className={`absolute -left-7 p-0.5 rounded-full ${statusStep >= 'transmitted' ? 'bg-green-500' : 'bg-gray-400'}`}>
-                      <CheckCircle className="w-3 h-3 text-white" />
-                    </div>
-                    <h3 className={`font-bold text-sm ${statusStep >= 'transmitted' ? '' : 'text-gray-400'}`}>
-                      Alert Transmitted
-                    </h3>
-                    <p className="text-xs text-gray-500">Emergency alert sent to responders</p>
-                </div>
-                <div className="relative">
-                    <div className={`absolute -left-7 p-0.5 rounded-full ${statusStep >= 'accepted' ? 'bg-green-500' : 'bg-gray-400'}`}>
-                      <ShieldAlert className="w-3 h-3 text-white" />
-                    </div>
-                    <h3 className={`font-bold text-sm ${statusStep >= 'accepted' ? '' : 'text-gray-400'}`}>
-                      Alert Accepted
-                    </h3>
-                    <p className="text-xs text-gray-500">
-                      {statusStep >= 'accepted' ? 'Responder has acknowledged the alert' : 'Waiting for responder...'}
-                    </p>
-                </div>
-                <div className="relative">
-                    <div className={`absolute -left-7 p-0.5 rounded-full ${statusStep >= 'dispatched' ? 'bg-green-500' : 'bg-gray-400'}`}>
-                      <Navigation className="w-3 h-3 text-white" />
-                    </div>
-                    <h3 className={`font-bold text-sm ${statusStep >= 'dispatched' ? '' : 'text-gray-400'}`}>
-                      Help Dispatched
-                    </h3>
-                    <p className="text-xs text-gray-500">
-                      {statusStep >= 'dispatched' ? 'Responder is on the way' : 'Waiting for dispatch...'}
-                    </p>
-                </div>
+          {/* Status Message */}
+          {statusStep >= 'accepted' && (
+            <div className="text-center mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <CheckCircle className="w-5 h-5 text-green-600" />
+                <span className="font-bold text-green-700">ALERT ACCEPTED</span>
+              </div>
+              <p className="text-sm text-green-600">Responder has acknowledged and is en route</p>
             </div>
-          </div>
+          )}
 
           {statusStep >= 'accepted' ? (
             <button onClick={() => setActiveTab('map')} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded font-bold transition-all text-sm flex items-center justify-center gap-2">
