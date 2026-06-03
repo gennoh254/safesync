@@ -124,6 +124,36 @@ export function ResponderMap({ darkMode, acceptedAlert }: { darkMode: boolean; a
 
     init();
 
+    // Periodically update responder location (every 10 seconds)
+    const locationInterval = setInterval(() => {
+      if (navigator.geolocation && mounted) {
+        navigator.geolocation.getCurrentPosition(
+          async (position) => {
+            if (!mounted) return;
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+            setResponderLocation({ lat, lng });
+
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+              await supabase
+                .from('profiles')
+                .update({
+                  latitude: lat,
+                  longitude: lng,
+                  last_location_update: new Date().toISOString()
+                })
+                .eq('id', user.id);
+            }
+          },
+          () => {
+            // Silently fail on location error
+          },
+          { enableHighAccuracy: true, timeout: 5000 }
+        );
+      }
+    }, 10000);
+
     // Subscribe to alert changes for real-time updates
     const channel = supabase
       .channel('responder-map-channel')
@@ -150,6 +180,7 @@ export function ResponderMap({ darkMode, acceptedAlert }: { darkMode: boolean; a
     return () => {
       mounted = false;
       channel.unsubscribe();
+      clearInterval(locationInterval);
     };
   }, []);
 

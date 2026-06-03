@@ -218,8 +218,9 @@ export function ClientMap() {
       )
       .subscribe();
 
-    // Periodically refresh responder list
+    // Periodically refresh responder list and active alert responder
     const interval = setInterval(async () => {
+      // Refresh general responders list
       const { data } = await supabase
         .from('profiles')
         .select('id, name, latitude, longitude, last_location_update, on_duty')
@@ -228,7 +229,31 @@ export function ClientMap() {
         .not('latitude', 'is', null)
         .not('longitude', 'is', null);
       if (mounted && data) setResponders(data as ResponderLocation[]);
-    }, 15000);
+
+      // Refresh active alert responder location if there is one
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user && mounted) {
+        const { data: alerts } = await supabase
+          .from('alerts')
+          .select('*')
+          .eq('client_id', user.id)
+          .eq('status', 'ACCEPTED')
+          .order('created_at', { ascending: false })
+          .limit(1);
+
+        if (alerts && alerts.length > 0 && alerts[0].current_responder_id && mounted) {
+          const { data: responderData } = await supabase
+            .from('profiles')
+            .select('id, name, latitude, longitude')
+            .eq('id', alerts[0].current_responder_id)
+            .maybeSingle();
+
+          if (responderData && mounted) {
+            setActiveAlertResponder(responderData as ResponderLocation);
+          }
+        }
+      }
+    }, 5000);
 
     return () => {
       mounted = false;
