@@ -12,6 +12,7 @@ interface AlertData {
   latitude: number;
   longitude: number;
   status: string;
+  current_responder_id?: string;
 }
 
 interface ResponderInfo {
@@ -62,43 +63,52 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
         setAlertData(alert);
         setLoading(false);
 
-        // If alert is already accepted, update status step
+        // Only show responder info if alert is ACCEPTED
         if (alert.status === 'ACCEPTED') {
           setStatusStep('accepted');
-        }
 
-        // Check for responders nearby
-        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-        const { data: responders } = await supabase
-          .from('profiles')
-          .select('id, name, email, latitude, longitude')
-          .eq('user_type', 'Responder')
-          .not('latitude', 'is', null)
-          .not('longitude', 'is', null)
-          .gte('last_location_update', fiveMinutesAgo);
+          // Fetch the assigned responder for this alert
+          if (alert.current_responder_id) {
+            const { data: responderData } = await supabase
+              .from('profiles')
+              .select('id, name, email, latitude, longitude')
+              .eq('id', alert.current_responder_id)
+              .maybeSingle();
 
-        if (responders && responders.length > 0 && alert.latitude && alert.longitude) {
-          // Find nearest responder
-          const nearest = (responders as ResponderInfo[]).reduce((closest, r) => {
-            const dist = haversineDistance(alert.latitude, alert.longitude, r.latitude, r.longitude);
-            return dist < closest.dist ? { responder: r, dist } : closest;
-          }, { responder: responders[0] as ResponderInfo, dist: Infinity });
-
-          setResponder(nearest.responder);
-          setDistance(nearest.dist);
-          setEta(Math.max(1, Math.round(nearest.dist / 0.5)));
-
-        // Simulate status progression only if not already accepted
-        if (alert.status !== 'ACCEPTED') {
-          setTimeout(() => {
-            if (mounted) setStatusStep('accepted');
-          }, 3000);
-          setTimeout(() => {
-            if (mounted) setStatusStep('dispatched');
-          }, 6000);
+            if (responderData && alert.latitude && alert.longitude) {
+              const dist = haversineDistance(
+                alert.latitude,
+                alert.longitude,
+                responderData.latitude,
+                responderData.longitude
+              );
+              setResponder(responderData as ResponderInfo);
+              setDistance(dist);
+              setEta(Math.max(1, Math.round(dist / 0.5)));
+            }
+          }
         } else {
-          setStatusStep('accepted');
-        }
+          // Only show nearest responder if alert is still ACTIVE (not accepted yet)
+          const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+          const { data: responders } = await supabase
+            .from('profiles')
+            .select('id, name, email, latitude, longitude')
+            .eq('user_type', 'Responder')
+            .not('latitude', 'is', null)
+            .not('longitude', 'is', null)
+            .gte('last_location_update', fiveMinutesAgo);
+
+          if (responders && responders.length > 0 && alert.latitude && alert.longitude) {
+            // Find nearest responder
+            const nearest = (responders as ResponderInfo[]).reduce((closest, r) => {
+              const dist = haversineDistance(alert.latitude, alert.longitude, r.latitude, r.longitude);
+              return dist < closest.dist ? { responder: r, dist } : closest;
+            }, { responder: responders[0] as ResponderInfo, dist: Infinity });
+
+            setResponder(nearest.responder);
+            setDistance(nearest.dist);
+            setEta(Math.max(1, Math.round(nearest.dist / 0.5)));
+          }
         }
       } else if (mounted) {
         setLoading(false);

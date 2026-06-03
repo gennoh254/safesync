@@ -86,11 +86,11 @@ export function ClientMap() {
             setActiveAlert(alerts[0]);
 
             // Get responder info for this alert
-            if (alerts[0].responder_id) {
+            if (alerts[0].current_responder_id) {
               const { data: responderData } = await supabase
                 .from('profiles')
                 .select('id, name, latitude, longitude')
-                .eq('id', alerts[0].responder_id)
+                .eq('id', alerts[0].current_responder_id)
                 .maybeSingle();
 
               if (responderData && mounted) {
@@ -197,9 +197,22 @@ export function ClientMap() {
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'alerts' },
-        (payload) => {
-          if (payload.new && (payload.new as any).status === 'ACCEPTED') {
+        async (payload) => {
+          if (payload.new && (payload.new as any).status === 'ACCEPTED' && mounted) {
             setActiveAlert(payload.new);
+
+            // Fetch responder data for the accepted alert
+            if ((payload.new as any).current_responder_id) {
+              const { data: responderData } = await supabase
+                .from('profiles')
+                .select('id, name, latitude, longitude')
+                .eq('id', (payload.new as any).current_responder_id)
+                .maybeSingle();
+
+              if (responderData && mounted) {
+                setActiveAlertResponder(responderData as ResponderLocation);
+              }
+            }
           }
         }
       )
@@ -223,7 +236,7 @@ export function ClientMap() {
       alertChannel.unsubscribe();
       clearInterval(interval);
     };
-  }, [activeAlertResponder]);
+  }, []);
 
   if (loading) {
     return (
