@@ -123,11 +123,34 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'alerts' },
-        (payload) => {
+        async (payload) => {
           if (mounted && payload.new) {
             const updated = payload.new as AlertData;
+            setAlertData(updated);
+
             if (updated.status === 'ACCEPTED') {
               setStatusStep('accepted');
+
+              // Fetch the assigned responder for this alert
+              if (updated.current_responder_id) {
+                const { data: responderData } = await supabase
+                  .from('profiles')
+                  .select('id, name, email, latitude, longitude')
+                  .eq('id', updated.current_responder_id)
+                  .maybeSingle();
+
+                if (responderData && updated.latitude && updated.longitude && mounted) {
+                  const dist = haversineDistance(
+                    updated.latitude,
+                    updated.longitude,
+                    responderData.latitude,
+                    responderData.longitude
+                  );
+                  setResponder(responderData as ResponderInfo);
+                  setDistance(dist);
+                  setEta(Math.max(1, Math.round(dist / 0.5)));
+                }
+              }
             }
           }
         }
@@ -177,7 +200,7 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
           </div>
 
           {/* Responder Info Card */}
-          {responder && (
+          {responder && statusStep >= 'accepted' && (
             <div className={`${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-gray-50 border-gray-200'} border rounded-lg p-4 mb-4`}>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-bold uppercase text-gray-400">Assigned Responder</span>
@@ -205,18 +228,20 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
           )}
 
           {/* ETA Display */}
-          <div className="flex items-center justify-between mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-            <div className="flex items-center gap-2">
-              <Clock className="w-5 h-5 text-red-500" />
-              <span className="font-bold text-red-700">Estimated Time</span>
+          {statusStep >= 'accepted' && distance !== null && (
+            <div className="flex items-center justify-between mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+              <div className="flex items-center gap-2">
+                <Clock className="w-5 h-5 text-red-500" />
+                <span className="font-bold text-red-700">Estimated Time</span>
+              </div>
+              <span className="text-2xl font-bold text-red-600">
+                {eta ? `${eta} min` : 'Calculating...'}
+              </span>
             </div>
-            <span className="text-2xl font-bold text-red-600">
-              {eta ? `${eta} min` : 'Calculating...'}
-            </span>
-          </div>
+          )}
 
           {/* Distance Display */}
-          {distance !== null && (
+          {statusStep >= 'accepted' && distance !== null && (
             <div className="text-center mb-4">
               <span className="text-sm text-gray-500">Responder is </span>
               <span className="font-bold text-blue-600">{distance.toFixed(1)} km</span>
@@ -249,8 +274,8 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
                         </div>
                       </AdvancedMarker>
                     )}
-                    {/* Responder marker */}
-                    {responder && (
+                    {/* Responder marker - only show when accepted */}
+                    {responder && statusStep >= 'accepted' && (
                       <AdvancedMarker position={{ lat: responder.latitude, lng: responder.longitude }}>
                         <div className="relative">
                           <div className="w-9 h-9 bg-blue-500 rounded-full border-3 border-white shadow-lg flex items-center justify-center animate-pulse">

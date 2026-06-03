@@ -119,8 +119,17 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
                       <button onClick={() => setActiveTab('settings')} className={`flex items-center gap-3 w-full p-3 rounded-lg ${activeTab === 'settings' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}><Settings className="w-5 h-5 text-white" />Settings</button>
                     </div>
                 </nav>
-                <div className="flex-grow p-8">
-                     <AlertSentDashboard onCancel={() => setIsAlertActive(false)} darkMode={darkMode} setActiveTab={setActiveTab} emergencyType={emergencyType} />
+                <div className="flex-grow flex flex-col overflow-hidden">
+                    {activeTab === 'home' && (
+                        <div className="flex-grow p-8 overflow-auto">
+                            <AlertSentDashboard onCancel={() => setIsAlertActive(false)} darkMode={darkMode} setActiveTab={setActiveTab} emergencyType={emergencyType} />
+                        </div>
+                    )}
+                    {activeTab === 'map' && (
+                        <div className="flex-grow flex flex-col" style={{ height: 'calc(100vh - 80px)' }}>
+                            <ClientMap />
+                        </div>
+                    )}
                 </div>
             </div>
         );
