@@ -40,7 +40,7 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
   const [distance, setDistance] = useState<number | null>(null);
   const [eta, setEta] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
-  const [statusStep, setStatusStep] = useState<'transmitted' | 'accepted' | 'dispatched'>('transmitted');
+  const [statusStep, setStatusStep] = useState<'transmitted' | 'accepted'>('transmitted');
 
   useEffect(() => {
     let mounted = true;
@@ -61,9 +61,8 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
       if (alerts && alerts.length > 0 && mounted) {
         const alert = alerts[0] as AlertData;
         setAlertData(alert);
-        setLoading(false);
 
-        // Only show responder info if alert is ACCEPTED
+        // Set status based on actual alert status from database
         if (alert.status === 'ACCEPTED') {
           setStatusStep('accepted');
 
@@ -88,28 +87,14 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
             }
           }
         } else {
-          // Only show nearest responder if alert is still ACTIVE (not accepted yet)
-          const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-          const { data: responders } = await supabase
-            .from('profiles')
-            .select('id, name, email, latitude, longitude')
-            .eq('user_type', 'Responder')
-            .not('latitude', 'is', null)
-            .not('longitude', 'is', null)
-            .gte('last_location_update', fiveMinutesAgo);
-
-          if (responders && responders.length > 0 && alert.latitude && alert.longitude) {
-            // Find nearest responder
-            const nearest = (responders as ResponderInfo[]).reduce((closest, r) => {
-              const dist = haversineDistance(alert.latitude, alert.longitude, r.latitude, r.longitude);
-              return dist < closest.dist ? { responder: r, dist } : closest;
-            }, { responder: responders[0] as ResponderInfo, dist: Infinity });
-
-            setResponder(nearest.responder);
-            setDistance(nearest.dist);
-            setEta(Math.max(1, Math.round(nearest.dist / 0.5)));
-          }
+          // Alert is ACTIVE - show transmitted status and no responder info
+          setStatusStep('transmitted');
+          setResponder(null);
+          setDistance(null);
+          setEta(null);
         }
+
+        setLoading(false);
       } else if (mounted) {
         setLoading(false);
       }
@@ -200,7 +185,7 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
           </div>
 
           {/* Responder Info Card */}
-          {responder && statusStep >= 'accepted' && (
+          {statusStep === 'accepted' && responder && (
             <div className={`${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-gray-50 border-gray-200'} border rounded-lg p-4 mb-4`}>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-bold uppercase text-gray-400">Assigned Responder</span>
@@ -228,7 +213,7 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
           )}
 
           {/* ETA Display */}
-          {statusStep >= 'accepted' && distance !== null && (
+          {statusStep === 'accepted' && eta !== null && (
             <div className="flex items-center justify-between mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
               <div className="flex items-center gap-2">
                 <Clock className="w-5 h-5 text-red-500" />
@@ -241,7 +226,7 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
           )}
 
           {/* Distance Display */}
-          {statusStep >= 'accepted' && distance !== null && (
+          {statusStep === 'accepted' && distance !== null && (
             <div className="text-center mb-4">
               <span className="text-sm text-gray-500">Responder is </span>
               <span className="font-bold text-blue-600">{distance.toFixed(1)} km</span>
@@ -275,7 +260,7 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
                       </AdvancedMarker>
                     )}
                     {/* Responder marker - only show when accepted */}
-                    {responder && statusStep >= 'accepted' && (
+                    {responder && statusStep === 'accepted' && (
                       <AdvancedMarker position={{ lat: responder.latitude, lng: responder.longitude }}>
                         <div className="relative">
                           <div className="w-9 h-9 bg-blue-500 rounded-full border-3 border-white shadow-lg flex items-center justify-center animate-pulse">
@@ -289,17 +274,27 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
           </div>
 
           {/* Status Message */}
-          {statusStep >= 'accepted' && (
+          {statusStep === 'transmitted' && (
+            <div className="text-center mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <Bell className="w-5 h-5 text-yellow-600" />
+                <span className="font-bold text-yellow-700">ALERT TRANSMITTED</span>
+              </div>
+              <p className="text-sm text-yellow-600">Emergency alert sent to responders</p>
+            </div>
+          )}
+
+          {statusStep === 'accepted' && responder && (
             <div className="text-center mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
               <div className="flex items-center justify-center gap-2 mb-2">
                 <CheckCircle className="w-5 h-5 text-green-600" />
                 <span className="font-bold text-green-700">ALERT ACCEPTED</span>
               </div>
-              <p className="text-sm text-green-600">Responder has acknowledged and is en route</p>
+              <p className="text-sm text-green-600">{responder.name} has acknowledged and is en route</p>
             </div>
           )}
 
-          {statusStep >= 'accepted' ? (
+          {statusStep === 'accepted' ? (
             <button onClick={() => setActiveTab('map')} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded font-bold transition-all text-sm flex items-center justify-center gap-2">
               <MapIcon className="w-5 h-5" />
               VIEW MAP
