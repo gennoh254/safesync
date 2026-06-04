@@ -33,7 +33,7 @@ function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: numbe
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergencyType }: { onCancel: () => void, darkMode: boolean, setActiveTab: (tab: 'home' | 'alerts' | 'map' | 'settings') => void, emergencyType: string | null }) {
+export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergencyType, onAlertAccepted }: { onCancel: () => void, darkMode: boolean, setActiveTab: (tab: 'home' | 'alerts' | 'map' | 'settings') => void, emergencyType: string | null, onAlertAccepted: (alertId: string) => void }) {
   const [showConfirmCancel, setShowConfirmCancel] = useState(false);
   const [alertData, setAlertData] = useState<AlertData | null>(null);
   const [responder, setResponder] = useState<ResponderInfo | null>(null);
@@ -134,7 +134,17 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
                       setDistance(dist);
                       setEta(Math.max(1, Math.round(dist / 0.5)));
                     }
+
+                    // Auto-navigate to alert detail page after acceptance
+                    if (mounted) {
+                      onAlertAccepted(updated.id);
+                    }
                   })();
+                } else {
+                  // No responder but still accepted - navigate anyway
+                  if (mounted) {
+                    onAlertAccepted(updated.id);
+                  }
                 }
               }
               return updated;
@@ -182,6 +192,11 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
               setDistance(dist);
               setEta(Math.max(1, Math.round(dist / 0.5)));
             }
+          }
+
+          // Auto-navigate to alert detail page after acceptance
+          if (mounted) {
+            onAlertAccepted(alert.id);
           }
         }
       }

@@ -135,6 +135,12 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
     }
   };
 
+  const handleAlertAccepted = (alertId: string) => {
+    setIsAlertActive(false);
+    setSelectedAlertId(alertId);
+    setActiveTab('alerts');
+  };
+
   if (isAlertActive) {
         return (
             <div className={`flex flex-col lg:flex-row flex-grow w-full h-screen ${darkMode ? 'bg-black text-white' : 'bg-white text-black'} font-sans`}>
@@ -150,7 +156,23 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
                 <div className="flex-grow flex flex-col overflow-hidden">
                     {activeTab === 'home' && (
                         <div className="flex-grow p-8 overflow-auto">
-                            <AlertSentDashboard onCancel={() => setIsAlertActive(false)} darkMode={darkMode} setActiveTab={setActiveTab} emergencyType={emergencyType} />
+                            <AlertSentDashboard onCancel={() => setIsAlertActive(false)} darkMode={darkMode} setActiveTab={setActiveTab} emergencyType={emergencyType} onAlertAccepted={handleAlertAccepted} />
+                        </div>
+                    )}
+                    {activeTab === 'alerts' && (
+                        <div className="flex-grow p-4 overflow-auto">
+                          {selectedAlertId ? (
+                            <AlertDetailView
+                              alertId={selectedAlertId}
+                              onBack={() => { setSelectedAlertId(null); setIsAlertActive(false); }}
+                              onViewMap={() => setActiveTab('map')}
+                            />
+                          ) : (
+                            <div className={`p-4 ${darkMode ? 'text-white' : 'text-black'}`}>
+                              <h2 className="text-xl font-bold uppercase tracking-widest mb-6">Alert History</h2>
+                              <p className="text-gray-500 text-sm">No active alerts</p>
+                            </div>
+                          )}
                         </div>
                     )}
                     {activeTab === 'map' && (
