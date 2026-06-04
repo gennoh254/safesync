@@ -314,8 +314,11 @@ export function ClientMap() {
   useEffect(() => {
     if (!clientLocation) return;
 
-    if (responderHasLocation && activeAlertResponder) {
-      // Center between client and responder, zoom out to fit both
+    const hasLocation = activeAlertResponder
+      && activeAlertResponder.latitude !== null
+      && activeAlertResponder.longitude !== null;
+
+    if (hasLocation && activeAlertResponder) {
       const lat = (clientLocation.lat + activeAlertResponder.latitude!) / 2;
       const lng = (clientLocation.lng + activeAlertResponder.longitude!) / 2;
       setMapCenter({ lat, lng });
