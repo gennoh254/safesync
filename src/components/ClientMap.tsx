@@ -1,5 +1,5 @@
 import { APIProvider, Map, AdvancedMarker, Polyline } from '@vis.gl/react-google-maps';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { Navigation, Hop as Home, Loader as Loader2, CircleAlert as AlertCircle, Users } from 'lucide-react';
 
@@ -8,8 +8,8 @@ const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_PLATFORM_KEY || process.env.GOO
 interface ResponderLocation {
   id: string;
   name: string;
-  latitude: number;
-  longitude: number;
+  latitude: number | null;
+  longitude: number | null;
   last_location_update: string | null;
 }
 
@@ -27,6 +27,12 @@ function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: numbe
     Math.sin(dLat / 2) ** 2 +
     Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function toNum(v: unknown): number | null {
+  if (v == null) return null;
+  const n = Number(v);
+  return isFinite(n) ? n : null;
 }
 
 function decodePolyline(encoded: string): Array<{ lat: number; lng: number }> {
@@ -65,6 +71,9 @@ export function ClientMap() {
   const [activeAlert, setActiveAlert] = useState<any>(null);
   const [routeInfo, setRouteInfo] = useState<RouteInfo | null>(null);
   const [activeAlertResponder, setActiveAlertResponder] = useState<ResponderLocation | null>(null);
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(null);
+  const [mapZoom, setMapZoom] = useState(14);
+  const prevResponderRef = useRef<ResponderLocation | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -94,7 +103,13 @@ export function ClientMap() {
                 .maybeSingle();
 
               if (responderData && mounted) {
-                setActiveAlertResponder(responderData as ResponderLocation);
+                setActiveAlertResponder({
+                  id: responderData.id,
+                  name: responderData.name,
+                  latitude: toNum(responderData.latitude),
+                  longitude: toNum(responderData.longitude),
+                  last_location_update: null,
+                });
               }
             }
           }
@@ -144,7 +159,15 @@ export function ClientMap() {
           .not('longitude', 'is', null);
 
         if (fetchError) throw fetchError;
-        if (mounted) setResponders((data || []) as ResponderLocation[]);
+        if (mounted) setResponders(
+          (data || []).map((r: any) => ({
+            id: r.id,
+            name: r.name,
+            latitude: toNum(r.latitude),
+            longitude: toNum(r.longitude),
+            last_location_update: r.last_location_update,
+          })).filter((r: ResponderLocation) => r.latitude !== null && r.longitude !== null)
+        );
       } catch (err: any) {
         if (mounted) setError(err.message ?? 'Failed to load map data');
       } finally {
@@ -166,12 +189,14 @@ export function ClientMap() {
             // Update responders list based on on_duty status
             setResponders((prev) => {
               const filtered = prev.filter((r) => r.id !== newData.id);
-              if (newData.on_duty && newData.latitude && newData.longitude) {
+              const lat = toNum(newData.latitude);
+              const lng = toNum(newData.longitude);
+              if (newData.on_duty && lat !== null && lng !== null) {
                 return [...filtered, {
                   id: newData.id,
                   name: newData.name,
-                  latitude: newData.latitude,
-                  longitude: newData.longitude,
+                  latitude: lat,
+                  longitude: lng,
                   last_location_update: newData.last_location_update
                 }];
               }
@@ -179,11 +204,13 @@ export function ClientMap() {
             });
 
             // Update active alert responder location if this is them
-            if (activeAlertResponder && newData.id === activeAlertResponder.id && newData.latitude && newData.longitude) {
+            const newLat = toNum(newData.latitude);
+            const newLng = toNum(newData.longitude);
+            if (activeAlertResponder && newData.id === activeAlertResponder.id && newLat !== null && newLng !== null) {
               setActiveAlertResponder({
                 ...activeAlertResponder,
-                latitude: newData.latitude,
-                longitude: newData.longitude
+                latitude: newLat,
+                longitude: newLng
               });
             }
           }
@@ -210,7 +237,13 @@ export function ClientMap() {
                 .maybeSingle();
 
               if (responderData && mounted) {
-                setActiveAlertResponder(responderData as ResponderLocation);
+                setActiveAlertResponder({
+                  id: responderData.id,
+                  name: responderData.name,
+                  latitude: toNum(responderData.latitude),
+                  longitude: toNum(responderData.longitude),
+                  last_location_update: null,
+                });
               }
             }
           }
@@ -228,7 +261,15 @@ export function ClientMap() {
         .eq('on_duty', true)
         .not('latitude', 'is', null)
         .not('longitude', 'is', null);
-      if (mounted && data) setResponders(data as ResponderLocation[]);
+      if (mounted && data) setResponders(
+        data.map((r: any) => ({
+          id: r.id,
+          name: r.name,
+          latitude: toNum(r.latitude),
+          longitude: toNum(r.longitude),
+          last_location_update: r.last_location_update,
+        })).filter((r: ResponderLocation) => r.latitude !== null && r.longitude !== null)
+      );
 
       // Refresh active alert responder location if there is one
       const { data: { user } } = await supabase.auth.getUser();
@@ -249,7 +290,13 @@ export function ClientMap() {
             .maybeSingle();
 
           if (responderData && mounted) {
-            setActiveAlertResponder(responderData as ResponderLocation);
+            setActiveAlertResponder({
+              id: responderData.id,
+              name: responderData.name,
+              latitude: toNum(responderData.latitude),
+              longitude: toNum(responderData.longitude),
+              last_location_update: null,
+            });
           }
         }
       }
@@ -262,6 +309,26 @@ export function ClientMap() {
       clearInterval(interval);
     };
   }, []);
+
+  // Auto-center map when client or responder location changes
+  useEffect(() => {
+    if (!clientLocation) return;
+
+    if (responderHasLocation && activeAlertResponder) {
+      // Center between client and responder, zoom out to fit both
+      const lat = (clientLocation.lat + activeAlertResponder.latitude!) / 2;
+      const lng = (clientLocation.lng + activeAlertResponder.longitude!) / 2;
+      setMapCenter({ lat, lng });
+
+      const dist = haversineDistance(clientLocation.lat, clientLocation.lng, activeAlertResponder.latitude!, activeAlertResponder.longitude!);
+      if (dist > 5) setMapZoom(10);
+      else if (dist > 2) setMapZoom(12);
+      else setMapZoom(13);
+    } else {
+      setMapCenter(clientLocation);
+      setMapZoom(14);
+    }
+  }, [clientLocation, activeAlertResponder?.latitude, activeAlertResponder?.longitude]);
 
   if (loading) {
     return (
@@ -281,11 +348,16 @@ export function ClientMap() {
     );
   }
 
+  const responderHasLocation = activeAlertResponder
+    && activeAlertResponder.latitude !== null
+    && activeAlertResponder.longitude !== null;
+
   const nearestResponder = responders.length > 0
     ? responders.reduce((nearest, r) => {
+        if (r.latitude === null || r.longitude === null) return nearest;
         const dist = haversineDistance(clientLocation.lat, clientLocation.lng, r.latitude, r.longitude);
         return dist < nearest.dist ? { responder: r, dist } : nearest;
-      }, { responder: responders[0], dist: Infinity })
+      }, { responder: responders[0], dist: Infinity } as { responder: ResponderLocation, dist: number })
     : null;
 
   return (
@@ -298,11 +370,11 @@ export function ClientMap() {
 
       <div className="flex justify-between items-center mb-3">
         <h2 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Help Status</h2>
-        {activeAlertResponder ? (
+        {responderHasLocation ? (
           <div className="bg-green-900/30 text-green-500 px-3 py-1 rounded text-xs font-bold border border-green-900/50">
-            ETA: ~{Math.max(1, Math.round(haversineDistance(clientLocation!.lat, clientLocation!.lng, activeAlertResponder.latitude, activeAlertResponder.longitude) / 0.5))} MINS
+            ETA: ~{Math.max(1, Math.round(haversineDistance(clientLocation!.lat, clientLocation!.lng, activeAlertResponder.latitude!, activeAlertResponder.longitude!) / 0.5))} MINS
           </div>
-        ) : nearestResponder && (
+        ) : nearestResponder && nearestResponder.responder.latitude !== null && nearestResponder.responder.longitude !== null && (
           <div className="bg-green-900/30 text-green-500 px-3 py-1 rounded text-xs font-bold border border-green-900/50">
             ETA: ~{Math.max(1, Math.round(nearestResponder.dist / 0.5))} MINS
           </div>
@@ -321,8 +393,8 @@ export function ClientMap() {
       <div className="h-64 lg:h-[350px] relative overflow-hidden rounded-lg border border-gray-700">
         <APIProvider apiKey={API_KEY} version="weekly">
           <Map
-            defaultCenter={clientLocation}
-            defaultZoom={14}
+            center={mapCenter || clientLocation}
+            zoom={mapZoom}
             mapId="CLIENT_MAP_ID"
             internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
             style={{ width: '100%', height: '100%' }}
@@ -330,10 +402,10 @@ export function ClientMap() {
             disableDefaultUI={false}
           >
             {/* Route from responder to client */}
-            {activeAlertResponder && clientLocation && (
+            {responderHasLocation && clientLocation && (
               <Polyline
                 path={[
-                  { lat: activeAlertResponder.latitude, lng: activeAlertResponder.longitude },
+                  { lat: activeAlertResponder.latitude!, lng: activeAlertResponder.longitude! },
                   { lat: clientLocation.lat, lng: clientLocation.lng }
                 ]}
                 geodesic={true}
@@ -356,8 +428,8 @@ export function ClientMap() {
             </AdvancedMarker>
 
             {/* Active alert responder marker */}
-            {activeAlertResponder && (
-              <AdvancedMarker position={{ lat: activeAlertResponder.latitude, lng: activeAlertResponder.longitude }}>
+            {responderHasLocation && (
+              <AdvancedMarker position={{ lat: activeAlertResponder.latitude!, lng: activeAlertResponder.longitude! }}>
                 <div className="relative">
                   <div className="w-10 h-10 bg-blue-600 rounded-full border-4 border-white shadow-lg flex items-center justify-center animate-pulse">
                     <Navigation className="w-5 h-5 text-white" />
@@ -370,12 +442,12 @@ export function ClientMap() {
             )}
 
             {/* Other responder markers */}
-            {responders.filter(r => !activeAlertResponder || r.id !== activeAlertResponder.id).map((responder) => {
-              const dist = haversineDistance(clientLocation.lat, clientLocation.lng, responder.latitude, responder.longitude);
+            {responders.filter(r => !activeAlertResponder || r.id !== activeAlertResponder.id).filter(r => r.latitude !== null && r.longitude !== null).map((responder) => {
+              const dist = haversineDistance(clientLocation.lat, clientLocation.lng, responder.latitude!, responder.longitude!);
               return (
                 <AdvancedMarker
                   key={responder.id}
-                  position={{ lat: responder.latitude, lng: responder.longitude }}
+                  position={{ lat: responder.latitude!, lng: responder.longitude! }}
                 >
                   <div className="relative">
                     <div className="w-9 h-9 bg-slate-500 rounded-full border-3 border-white shadow-lg flex items-center justify-center">
@@ -404,18 +476,26 @@ export function ClientMap() {
 
       {/* Info panel */}
       <div className="mt-4 bg-gray-900 border border-gray-800 p-4 rounded-lg text-center">
-        {activeAlertResponder ? (
+        {responderHasLocation ? (
           <>
             <p className="text-sm font-bold text-gray-400 uppercase tracking-wider">Responder En Route</p>
             <p className="text-xl font-bold text-white mt-1">
               {activeAlertResponder.name}
             </p>
             <p className="text-blue-400 font-bold">
-              {haversineDistance(clientLocation!.lat, clientLocation!.lng, activeAlertResponder.latitude, activeAlertResponder.longitude).toFixed(2)} km away
+              {haversineDistance(clientLocation!.lat, clientLocation!.lng, activeAlertResponder.latitude!, activeAlertResponder.longitude!).toFixed(2)} km away
             </p>
             <p className="text-xs text-gray-400 mt-2">Blue line shows the shortest route</p>
           </>
-        ) : nearestResponder ? (
+        ) : activeAlertResponder && !responderHasLocation ? (
+          <>
+            <p className="text-sm font-bold text-gray-400 uppercase tracking-wider">Responder Assigned</p>
+            <p className="text-xl font-bold text-white mt-1">
+              {activeAlertResponder.name}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">Waiting for responder location...</p>
+          </>
+        ) : nearestResponder && nearestResponder.responder.latitude !== null && nearestResponder.responder.longitude !== null ? (
           <>
             <p className="text-sm font-bold text-gray-400 uppercase tracking-wider">Nearest responder available</p>
             <p className="text-xl font-bold text-white mt-1">
@@ -444,7 +524,9 @@ export function ClientMap() {
           </h3>
           <div className="space-y-2">
             {responders.map(r => {
-              const dist = haversineDistance(clientLocation.lat, clientLocation.lng, r.latitude, r.longitude);
+              const dist = r.latitude !== null && r.longitude !== null
+                ? haversineDistance(clientLocation.lat, clientLocation.lng, r.latitude, r.longitude)
+                : 0;
               return (
                 <div key={r.id} className="flex justify-between items-center bg-gray-800 p-3 rounded-lg">
                   <div className="flex items-center gap-2">
