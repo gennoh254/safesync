@@ -2,6 +2,7 @@ import { MapPin, CircleAlert as AlertCircle, Settings, Bell, Hop as Home, Map as
 import React, { useState, useEffect } from 'react';
 import { AlertSentDashboard } from './AlertSentDashboard';
 import { ClientMap } from './ClientMap';
+import { AlertDetailView } from './AlertDetailView';
 import { supabase } from '../lib/supabase';
 
 interface HomeDashboardProps {
@@ -28,6 +29,7 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
   const [alertError, setAlertError] = useState<string | null>(null);
   const [alertHistory, setAlertHistory] = useState<AlertRecord[]>([]);
   const [alertsLoading, setAlertsLoading] = useState(false);
+  const [selectedAlertId, setSelectedAlertId] = useState<string | null>(null);
 
   const fetchAlertHistory = async () => {
     setAlertsLoading(true);
@@ -55,6 +57,32 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
       fetchAlertHistory();
     }
   }, [activeTab]);
+
+  // Subscribe to alert changes to auto-reset isAlertActive when alert is resolved
+  useEffect(() => {
+    let mounted = true;
+
+    const channel = supabase
+      .channel('home-dashboard-alert-channel')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'alerts' },
+        (payload) => {
+          if (payload.new && mounted) {
+            const updated = payload.new as any;
+            if (['RESOLVED', 'UNRESOLVED', 'CANCELLED'].includes(updated.status)) {
+              setIsAlertActive(false);
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      mounted = false;
+      channel.unsubscribe();
+    };
+  }, []);
 
   const triggerEmergency = async () => {
     if (!emergencyType) {
@@ -241,71 +269,88 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
         )}
         {activeTab === 'alerts' && (
             <div className={`p-4 ${darkMode ? 'text-white' : 'text-black'}`}>
-                <h2 className="text-xl font-bold uppercase tracking-widest mb-6">Alert History</h2>
-                {alertsLoading ? (
-                  <div className="flex items-center justify-center py-16">
-                    <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
-                  </div>
-                ) : alertHistory.length === 0 ? (
-                  <div className={`text-center py-16 rounded-xl border ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-gray-50 border-gray-200'}`}>
-                    <Bell className="w-10 h-10 mx-auto mb-3 text-gray-300" />
-                    <p className="text-gray-500 font-medium">No alerts sent yet</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {alertHistory.map((alert) => {
-                      const isResolved = alert.status === 'RESOLVED';
-                      const isActive = alert.status === 'ACTIVE';
-                      const isAccepted = alert.status === 'ACCEPTED';
-                      const statusColor = isResolved
-                        ? 'text-green-600 bg-green-50 border-green-200'
-                        : isAccepted
-                        ? 'text-blue-600 bg-blue-50 border-blue-200'
-                        : 'text-red-600 bg-red-50 border-red-200';
-                      const typeIcon = alert.emergency_type === 'FIRE'
-                        ? <Flame className="w-5 h-5 text-orange-500" />
-                        : alert.emergency_type === 'MEDICAL'
-                        ? <HeartPulse className="w-5 h-5 text-red-500" />
-                        : <AlertCircle className="w-5 h-5 text-yellow-500" />;
+              {selectedAlertId ? (
+                <AlertDetailView
+                  alertId={selectedAlertId}
+                  onBack={() => { setSelectedAlertId(null); fetchAlertHistory(); }}
+                  onViewMap={() => setActiveTab('map')}
+                />
+              ) : (
+                <>
+                  <h2 className="text-xl font-bold uppercase tracking-widest mb-6">Alert History</h2>
+                  {alertsLoading ? (
+                    <div className="flex items-center justify-center py-16">
+                      <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+                    </div>
+                  ) : alertHistory.length === 0 ? (
+                    <div className={`text-center py-16 rounded-xl border ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-gray-50 border-gray-200'}`}>
+                      <Bell className="w-10 h-10 mx-auto mb-3 text-gray-300" />
+                      <p className="text-gray-500 font-medium">No alerts sent yet</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {alertHistory.map((alert) => {
+                        const isResolved = alert.status === 'RESOLVED';
+                        const isUnresolved = alert.status === 'UNRESOLVED';
+                        const isActive = alert.status === 'ACTIVE';
+                        const isAccepted = alert.status === 'ACCEPTED';
+                        const statusColor = isResolved
+                          ? 'text-green-600 bg-green-50 border-green-200'
+                          : isUnresolved
+                          ? 'text-red-600 bg-red-50 border-red-200'
+                          : isAccepted
+                          ? 'text-blue-600 bg-blue-50 border-blue-200'
+                          : 'text-yellow-600 bg-yellow-50 border-yellow-200';
+                        const typeIcon = alert.emergency_type === 'FIRE'
+                          ? <Flame className="w-5 h-5 text-orange-500" />
+                          : alert.emergency_type === 'MEDICAL'
+                          ? <HeartPulse className="w-5 h-5 text-red-500" />
+                          : <AlertCircle className="w-5 h-5 text-yellow-500" />;
 
-                      return (
-                        <div key={alert.id} className={`border rounded-xl p-4 ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'} shadow-sm`}>
-                          <div className="flex justify-between items-start mb-3">
-                            <div className="flex items-center gap-2">
-                              {typeIcon}
-                              <span className="font-bold text-sm uppercase tracking-wide">
-                                {alert.emergency_type === 'FIRE' ? 'Fire Emergency' : alert.emergency_type === 'MEDICAL' ? 'Medical Emergency' : 'Emergency'}
+                        return (
+                          <button
+                            key={alert.id}
+                            onClick={() => setSelectedAlertId(alert.id)}
+                            className={`w-full text-left border rounded-xl p-4 ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'} shadow-sm hover:shadow-md transition-shadow cursor-pointer`}
+                          >
+                            <div className="flex justify-between items-start mb-3">
+                              <div className="flex items-center gap-2">
+                                {typeIcon}
+                                <span className="font-bold text-sm uppercase tracking-wide">
+                                  {alert.emergency_type === 'FIRE' ? 'Fire Emergency' : alert.emergency_type === 'MEDICAL' ? 'Medical Emergency' : 'Emergency'}
+                                </span>
+                              </div>
+                              <span className={`text-xs font-bold uppercase px-2 py-1 rounded-full border ${statusColor}`}>
+                                {isActive ? 'TRANSMITTED' : alert.status}
                               </span>
                             </div>
-                            <span className={`text-xs font-bold uppercase px-2 py-1 rounded-full border ${statusColor}`}>
-                              {alert.status}
-                            </span>
-                          </div>
-                          <div className="space-y-1.5 text-sm">
-                            <div className="flex items-center gap-2 text-gray-500">
-                              <Clock className="w-3.5 h-3.5 shrink-0" />
-                              <span>{new Date(alert.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                            <div className="space-y-1.5 text-sm">
+                              <div className="flex items-center gap-2 text-gray-500">
+                                <Clock className="w-3.5 h-3.5 shrink-0" />
+                                <span>{new Date(alert.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                              </div>
+                              <div className="flex items-center gap-2 text-gray-500">
+                                <MapPin className="w-3.5 h-3.5 shrink-0" />
+                                <span>{alert.location || 'Location not recorded'}</span>
+                              </div>
+                              <div className="flex items-center gap-2 text-gray-500">
+                                <User className="w-3.5 h-3.5 shrink-0" />
+                                <span>{isResolved ? 'Incident resolved' : isUnresolved ? 'Incident not resolved' : isAccepted ? 'Responder en route' : 'Awaiting responder'}</span>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-2 text-gray-500">
-                              <MapPin className="w-3.5 h-3.5 shrink-0" />
-                              <span>{alert.location || 'Location not recorded'}</span>
-                            </div>
-                            <div className="flex items-center gap-2 text-gray-500">
-                              <User className="w-3.5 h-3.5 shrink-0" />
-                              <span>{isResolved ? 'Incident resolved' : isAccepted ? 'Responder en route' : 'Awaiting responder'}</span>
-                            </div>
-                          </div>
-                          {isResolved && (
-                            <div className="mt-3 flex items-center gap-1.5 text-green-600 text-xs font-bold">
-                              <CheckCircle className="w-4 h-4" />
-                              Resolved
-                            </div>
-                          )}
-                        </div>
-                      );
+                            {isResolved && (
+                              <div className="mt-3 flex items-center gap-1.5 text-green-600 text-xs font-bold">
+                                <CheckCircle className="w-4 h-4" />
+                                Resolved
+                              </div>
+                            )}
+                          </button>
+                        );
                     })}
                   </div>
                 )}
+              </>
+              )}
             </div>
         )}
         {activeTab === 'settings' && (

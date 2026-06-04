@@ -188,7 +188,7 @@ export function ResponderMap({ darkMode, acceptedAlert }: { darkMode: boolean; a
     try {
       const { error: err } = await supabase
         .from('alerts')
-        .update({ status: 'RESOLVED' })
+        .update({ status: 'RESOLVED', resolved_at: new Date().toISOString() })
         .eq('id', alertId);
       if (err) throw err;
       setAlerts(alerts.filter(a => a.id !== alertId));

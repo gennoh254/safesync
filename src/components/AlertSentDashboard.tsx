@@ -49,7 +49,6 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Get the client's latest active or accepted alert
       const { data: alerts } = await supabase
         .from('alerts')
         .select('*')
@@ -62,11 +61,9 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
         const alert = alerts[0] as AlertData;
         setAlertData(alert);
 
-        // Set status based on actual alert status from database
         if (alert.status === 'ACCEPTED') {
           setStatusStep('accepted');
 
-          // Fetch the assigned responder for this alert
           if (alert.current_responder_id) {
             const { data: responderData } = await supabase
               .from('profiles')
@@ -87,7 +84,6 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
             }
           }
         } else {
-          // Alert is ACTIVE - show transmitted status and no responder info
           setStatusStep('transmitted');
           setResponder(null);
           setDistance(null);
@@ -102,49 +98,99 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
 
     fetchLatestAlert();
 
-    // Subscribe to alert updates
+    // Subscribe to alert updates - use async IIFE inside callback to avoid deadlock
     const channel = supabase
       .channel('alert-status-channel')
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'alerts' },
-        async (payload) => {
-          if (mounted && payload.new) {
+        (payload) => {
+          if (payload.new) {
             const updated = payload.new as AlertData;
-            setAlertData(updated);
 
-            if (updated.status === 'ACCEPTED') {
-              setStatusStep('accepted');
+            setAlertData(prev => {
+              // Only process if this is our alert
+              if (prev && updated.id !== prev.id) return prev;
 
-              // Fetch the assigned responder for this alert
-              if (updated.current_responder_id) {
-                const { data: responderData } = await supabase
-                  .from('profiles')
-                  .select('id, name, email, latitude, longitude')
-                  .eq('id', updated.current_responder_id)
-                  .maybeSingle();
+              // Schedule state updates outside the subscription context
+              if (updated.status === 'ACCEPTED') {
+                setStatusStep('accepted');
+                if (updated.current_responder_id) {
+                  (async () => {
+                    const { data: responderData } = await supabase
+                      .from('profiles')
+                      .select('id, name, email, latitude, longitude')
+                      .eq('id', updated.current_responder_id!)
+                      .maybeSingle();
 
-                if (responderData && updated.latitude && updated.longitude && mounted) {
-                  const dist = haversineDistance(
-                    updated.latitude,
-                    updated.longitude,
-                    responderData.latitude,
-                    responderData.longitude
-                  );
-                  setResponder(responderData as ResponderInfo);
-                  setDistance(dist);
-                  setEta(Math.max(1, Math.round(dist / 0.5)));
+                    if (responderData && updated.latitude && updated.longitude && mounted) {
+                      const dist = haversineDistance(
+                        updated.latitude,
+                        updated.longitude,
+                        responderData.latitude,
+                        responderData.longitude
+                      );
+                      setResponder(responderData as ResponderInfo);
+                      setDistance(dist);
+                      setEta(Math.max(1, Math.round(dist / 0.5)));
+                    }
+                  })();
                 }
               }
-            }
+              return updated;
+            });
           }
         }
       )
       .subscribe();
 
+    // Fallback: poll every 3 seconds to catch missed real-time events
+    const pollInterval = setInterval(async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || !mounted) return;
+
+      const { data: alerts } = await supabase
+        .from('alerts')
+        .select('*')
+        .eq('client_id', user.id)
+        .in('status', ['ACTIVE', 'ACCEPTED'])
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (alerts && alerts.length > 0 && mounted) {
+        const alert = alerts[0] as AlertData;
+        setAlertData(alert);
+
+        if (alert.status === 'ACCEPTED' && statusStep === 'transmitted') {
+          setStatusStep('accepted');
+
+          if (alert.current_responder_id) {
+            const { data: responderData } = await supabase
+              .from('profiles')
+              .select('id, name, email, latitude, longitude')
+              .eq('id', alert.current_responder_id)
+              .maybeSingle();
+
+            if (responderData && alert.latitude && alert.longitude && mounted) {
+              const dist = haversineDistance(
+                alert.latitude,
+                alert.longitude,
+                responderData.latitude,
+                responderData.longitude
+              );
+              setResponder(responderData as ResponderInfo);
+              setDistance(dist);
+              setEta(Math.max(1, Math.round(dist / 0.5)));
+            }
+          }
+        }
+      }
+    }, 3000);
+
     return () => {
       mounted = false;
       channel.unsubscribe();
+      clearInterval(pollInterval);
     };
   }, []);
 

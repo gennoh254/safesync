@@ -132,9 +132,16 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
 
   const handleAcceptAlert = async (alert: Alert) => {
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
       const { error: err } = await supabase
         .from('alerts')
-        .update({ status: 'ACCEPTED' })
+        .update({
+          status: 'ACCEPTED',
+          current_responder_id: user.id,
+          accepted_at: new Date().toISOString(),
+        })
         .eq('id', alert.id);
 
       if (err) throw err;
