@@ -331,7 +331,7 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
             </nav>
 
             <div className="flex-grow overflow-auto p-4 lg:p-8">
-                {activeTab === 'home' && <ReceiverHome onGoToMap={() => setActiveTab('map')} />}
+                {activeTab === 'home' && <ReceiverHome onGoToMap={() => setActiveTab('map')} onGoToSettings={() => setActiveTab('settings')} />}
                 {activeTab === 'alerts' && <ReceiverAlerts onAcceptAlert={handleAcceptAlert} />}
                 {activeTab === 'map' && <ReceiverTrackingPage darkMode={darkMode} acceptedAlert={acceptedAlert} />}
                 {activeTab === 'settings' && <ReceiverSettings />}

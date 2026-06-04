@@ -1,46 +1,246 @@
-import { User, Bell, Shield, LogOut } from 'lucide-react';
-import { useState } from 'react';
+import { User, Flame, HeartPulse, Save, Loader } from 'lucide-react';
+import { useState, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
+import { supabase } from '../lib/supabase';
+
+interface ProfileData {
+  name: string;
+  email: string;
+  phone: string;
+  response_types: string[];
+}
 
 export function ReceiverSettings() {
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const { theme, toggleTheme } = useTheme();
   const darkMode = theme === 'dark';
+
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [profile, setProfile] = useState<ProfileData>({ name: '', email: '', phone: '', response_types: [] });
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('name, email, phone, response_types')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        if (error) throw error;
+        if (data) {
+          setProfile({
+            name: data.name || '',
+            email: data.email || '',
+            phone: data.phone || '',
+            response_types: data.response_types || [],
+          });
+        }
+      } catch (err) {
+        console.error('Failed to load profile:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchProfile();
+  }, []);
+
+  const toggleResponseType = (type: string) => {
+    setProfile((prev) => {
+      const current = prev.response_types;
+      if (current.includes(type)) {
+        return { ...prev, response_types: current.filter((t) => t !== type) };
+      }
+      return { ...prev, response_types: [...current, type] };
+    });
+  };
+
+  const handleSave = async () => {
+    if (profile.response_types.length === 0) {
+      setSaveMessage('Please select at least one response type.');
+      return;
+    }
+    if (!profile.phone.trim()) {
+      setSaveMessage('Please enter your mobile number.');
+      return;
+    }
+
+    setSaving(true);
+    setSaveMessage(null);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          phone: profile.phone.trim(),
+          response_types: profile.response_types,
+        })
+        .eq('id', user.id);
+
+      if (error) throw error;
+      setSaveMessage('Profile saved successfully.');
+      setTimeout(() => setSaveMessage(null), 3000);
+    } catch (err) {
+      console.error('Failed to save profile:', err);
+      setSaveMessage('Failed to save profile. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const isProfileComplete = profile.response_types.length > 0 && profile.phone.trim().length > 0;
+
+  if (loading) {
+    return (
+      <div className={`p-4 font-sans flex items-center justify-center min-h-screen ${darkMode ? 'bg-gray-900 text-white' : 'bg-white text-black'}`}>
+        <Loader className="w-6 h-6 animate-spin text-gray-400" />
+      </div>
+    );
+  }
 
   return (
     <div className={`p-4 font-sans ${darkMode ? 'bg-gray-900 text-white' : 'bg-white text-black'} min-h-screen`}>
       <h2 className="text-xl font-bold mb-8 uppercase tracking-widest">Settings</h2>
-      
+
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-            <span className="font-bold">Dark Mode</span>
-            <button onClick={toggleTheme} className={`w-12 h-6 ${darkMode ? 'bg-blue-600' : 'bg-gray-400'} rounded-full transition-all`}>
-                <div className={`w-4 h-4 bg-white rounded-full transition-all ${darkMode ? 'ml-7' : 'ml-1'}`}></div>
-            </button>
-        </div>
-        
-        <div className="border-t pt-6">
-            <span className="font-bold block mb-4">Account Notifications</span>
-            <div className="flex justify-between items-center">
-                <span className="text-sm">Enable Sound</span>
-                <button onClick={() => setNotificationsEnabled(!notificationsEnabled)} className={`w-12 h-6 ${notificationsEnabled ? 'bg-blue-600' : 'bg-gray-400'} rounded-full transition-all`}>
-                    <div className={`w-4 h-4 bg-white rounded-full transition-all ${notificationsEnabled ? 'ml-7' : 'ml-1'}`}></div>
-                </button>
+        {/* Profile Section */}
+        <div className={`border rounded-xl p-6 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
+          <div className="flex items-center gap-3 mb-6">
+            <User className="w-5 h-5" />
+            <h3 className="font-bold text-lg">Profile</h3>
+            {!isProfileComplete && (
+              <span className="text-xs font-bold bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">Incomplete</span>
+            )}
+            {isProfileComplete && (
+              <span className="text-xs font-bold bg-green-100 text-green-800 px-2 py-1 rounded-full">Complete</span>
+            )}
+          </div>
+
+          {!isProfileComplete && (
+            <div className={`mb-5 p-3 rounded-lg text-sm border ${darkMode ? 'bg-yellow-900/30 border-yellow-700 text-yellow-300' : 'bg-yellow-50 border-yellow-300 text-yellow-800'}`}>
+              Complete your profile before going on duty. You must select at least one response type and provide a mobile number.
             </div>
+          )}
+
+          <div className="space-y-4">
+            {/* Name - read only */}
+            <div>
+              <label className="block text-sm font-bold mb-1 text-gray-500">Name</label>
+              <input
+                type="text"
+                value={profile.name}
+                disabled
+                className={`w-full p-3 rounded-lg border text-sm ${darkMode ? 'bg-gray-700 border-gray-600 text-gray-400' : 'bg-gray-100 border-gray-200 text-gray-500'} cursor-not-allowed`}
+              />
+              <p className="text-xs text-gray-400 mt-1">From your signup account</p>
+            </div>
+
+            {/* Email - read only */}
+            <div>
+              <label className="block text-sm font-bold mb-1 text-gray-500">Email</label>
+              <input
+                type="email"
+                value={profile.email}
+                disabled
+                className={`w-full p-3 rounded-lg border text-sm ${darkMode ? 'bg-gray-700 border-gray-600 text-gray-400' : 'bg-gray-100 border-gray-200 text-gray-500'} cursor-not-allowed`}
+              />
+              <p className="text-xs text-gray-400 mt-1">From your signup account</p>
+            </div>
+
+            {/* Phone - editable */}
+            <div>
+              <label className="block text-sm font-bold mb-1 text-gray-500">Mobile Number</label>
+              <input
+                type="tel"
+                value={profile.phone}
+                onChange={(e) => setProfile((prev) => ({ ...prev, phone: e.target.value }))}
+                placeholder="e.g. +254 712 345 678"
+                className={`w-full p-3 rounded-lg border text-sm ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-black'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
+              />
+            </div>
+
+            {/* Response Type Selection */}
+            <div>
+              <label className="block text-sm font-bold mb-2 text-gray-500">Response Types</label>
+              <p className="text-xs text-gray-400 mb-3">Select the emergency types you respond to</p>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => toggleResponseType('FIRE')}
+                  className={`flex items-center gap-2 px-4 py-3 rounded-lg border-2 transition-all font-bold text-sm ${
+                    profile.response_types.includes('FIRE')
+                      ? 'border-orange-500 bg-orange-50 text-orange-700'
+                      : darkMode
+                      ? 'border-gray-600 text-gray-400 hover:border-gray-500'
+                      : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                  }`}
+                >
+                  <Flame className="w-4 h-4" />
+                  Fire
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleResponseType('MEDICAL')}
+                  className={`flex items-center gap-2 px-4 py-3 rounded-lg border-2 transition-all font-bold text-sm ${
+                    profile.response_types.includes('MEDICAL')
+                      ? 'border-red-500 bg-red-50 text-red-700'
+                      : darkMode
+                      ? 'border-gray-600 text-gray-400 hover:border-gray-500'
+                      : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                  }`}
+                >
+                  <HeartPulse className="w-4 h-4" />
+                  Medical
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Save button */}
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className={`mt-6 w-full flex items-center justify-center gap-2 p-3 rounded-lg font-bold text-sm transition-all ${
+              saving
+                ? 'bg-gray-400 cursor-not-allowed'
+                : 'bg-blue-600 hover:bg-blue-700 text-white'
+            }`}
+          >
+            {saving ? <Loader className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {saving ? 'Saving...' : 'Save Profile'}
+          </button>
+
+          {saveMessage && (
+            <p className={`mt-3 text-sm font-medium ${saveMessage.includes('success') ? 'text-green-600' : 'text-red-600'}`}>
+              {saveMessage}
+            </p>
+          )}
         </div>
 
-        <div className="border-t pt-6">
-            <button className="flex items-center gap-4 w-full text-left font-bold">
-                <User className="w-5 h-5" />
-                Profile
-            </button>
+        {/* Dark Mode */}
+        <div className="flex items-center justify-between">
+          <span className="font-bold">Dark Mode</span>
+          <button onClick={toggleTheme} className={`w-12 h-6 ${darkMode ? 'bg-blue-600' : 'bg-gray-400'} rounded-full transition-all`}>
+            <div className={`w-4 h-4 bg-white rounded-full transition-all ${darkMode ? 'ml-7' : 'ml-1'}`}></div>
+          </button>
         </div>
-        
+
+        {/* Notifications */}
         <div className="border-t pt-6">
-            <button className="flex items-center gap-4 w-full text-left font-bold text-red-600">
-                <LogOut className="w-5 h-5" />
-                Log Out
+          <span className="font-bold block mb-4">Account Notifications</span>
+          <div className="flex justify-between items-center">
+            <span className="text-sm">Enable Sound</span>
+            <button onClick={() => setNotificationsEnabled(!notificationsEnabled)} className={`w-12 h-6 ${notificationsEnabled ? 'bg-blue-600' : 'bg-gray-400'} rounded-full transition-all`}>
+              <div className={`w-4 h-4 bg-white rounded-full transition-all ${notificationsEnabled ? 'ml-7' : 'ml-1'}`}></div>
             </button>
+          </div>
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { MapPin, CircleAlert as AlertCircle, Settings, Bell, Hop as Home, Map as MapIcon, Flame, HeartPulse, Navigation, LogOut, Loader as Loader2, CircleCheck as CheckCircle, Clock, User } from 'lucide-react';
+import { MapPin, CircleAlert as AlertCircle, Settings, Bell, Hop as Home, Map as MapIcon, Flame, HeartPulse, Navigation, LogOut, Loader as Loader2, CircleCheck as CheckCircle, Clock, User, Save, TriangleAlert as AlertTriangle } from 'lucide-react';
 import React, { useState, useEffect } from 'react';
 import { AlertSentDashboard } from './AlertSentDashboard';
 import { ClientMap } from './ClientMap';
@@ -20,6 +20,12 @@ interface AlertRecord {
   responder?: { name: string; email: string } | null;
 }
 
+interface ClientProfile {
+  name: string;
+  email: string;
+  phone: string;
+}
+
 export function HomeDashboard({ onLogout }: HomeDashboardProps) {
     const [activeTab, setActiveTab] = useState<'home' | 'alerts' | 'map' | 'settings'>('home');
     const [emergencyType, setEmergencyType] = useState<string | null>(null);
@@ -30,6 +36,10 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
   const [alertHistory, setAlertHistory] = useState<AlertRecord[]>([]);
   const [alertsLoading, setAlertsLoading] = useState(false);
   const [selectedAlertId, setSelectedAlertId] = useState<string | null>(null);
+  const [clientProfile, setClientProfile] = useState<ClientProfile>({ name: '', email: '', phone: '' });
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileSaveMsg, setProfileSaveMsg] = useState<string | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
 
   const fetchAlertHistory = async () => {
     setAlertsLoading(true);
@@ -57,6 +67,29 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
       fetchAlertHistory();
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('name, email, phone')
+          .eq('id', user.id)
+          .maybeSingle();
+        if (error) throw error;
+        if (data) {
+          setClientProfile({ name: data.name || '', email: data.email || '', phone: data.phone || '' });
+        }
+      } catch (err) {
+        console.error('Failed to load client profile:', err);
+      } finally {
+        setProfileLoading(false);
+      }
+    };
+    fetchProfile();
+  }, []);
 
   // Subscribe to alert changes to auto-reset isAlertActive when alert is resolved
   useEffect(() => {
@@ -88,6 +121,11 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
     if (!emergencyType) {
         alert("Please select an emergency type first.");
         return;
+    }
+
+    if (!clientProfile.phone.trim()) {
+      setActiveTab('settings');
+      return;
     }
 
     try {
@@ -140,6 +178,33 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
     setSelectedAlertId(alertId);
     setActiveTab('alerts');
   };
+
+  const handleSaveProfile = async () => {
+    if (!clientProfile.phone.trim()) {
+      setProfileSaveMsg('Please enter your mobile number.');
+      return;
+    }
+    setProfileSaving(true);
+    setProfileSaveMsg(null);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { error } = await supabase
+        .from('profiles')
+        .update({ phone: clientProfile.phone.trim() })
+        .eq('id', user.id);
+      if (error) throw error;
+      setProfileSaveMsg('Profile saved successfully.');
+      setTimeout(() => setProfileSaveMsg(null), 3000);
+    } catch (err) {
+      console.error('Failed to save profile:', err);
+      setProfileSaveMsg('Failed to save profile. Please try again.');
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const clientProfileIncomplete = !clientProfile.phone.trim();
 
   if (isAlertActive) {
         return (
@@ -219,6 +284,21 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
 
               {/* Mobile View: Simple SOS Button and Emergency Buttons */}
               <div className="flex flex-col items-center justify-center w-full p-4 lg:hidden">
+                  {clientProfileIncomplete && !profileLoading && (
+                    <div className="w-full mb-6 border border-yellow-300 bg-yellow-50 rounded-xl p-4 text-center">
+                      <div className="flex items-center justify-center gap-2 text-yellow-700 font-bold text-sm mb-2">
+                        <AlertTriangle className="w-5 h-5" />
+                        Profile Incomplete
+                      </div>
+                      <p className="text-yellow-700 text-xs mb-3">Add your mobile number before sending an alert.</p>
+                      <button
+                        onClick={() => setActiveTab('settings')}
+                        className="bg-yellow-600 hover:bg-yellow-700 text-white text-sm font-bold px-4 py-2 rounded-lg transition-colors"
+                      >
+                        Go to Settings
+                      </button>
+                    </div>
+                  )}
                   <button onClick={triggerEmergency} className={`w-56 h-56 rounded-full flex flex-col items-center justify-center gap-2 shadow-lg border-4 transition-all ${emergencyType ? 'bg-red-600 border-red-800 hover:bg-red-700' : 'bg-gray-400 border-gray-600 cursor-not-allowed'}`}>
                       <AlertCircle className="w-16 h-16 text-white" />
                       <span className="font-bold text-lg uppercase tracking-widest text-white">Alertify</span>
@@ -249,6 +329,21 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
 
               {/* Web View: More structured SOS and Emergency Buttons */}
               <div className="hidden lg:flex flex-col items-center justify-center w-full border rounded-2xl p-12">
+                  {clientProfileIncomplete && !profileLoading && (
+                    <div className="w-full max-w-md mb-6 border border-yellow-300 bg-yellow-50 rounded-xl p-4 text-center">
+                      <div className="flex items-center justify-center gap-2 text-yellow-700 font-bold text-sm mb-2">
+                        <AlertTriangle className="w-5 h-5" />
+                        Profile Incomplete
+                      </div>
+                      <p className="text-yellow-700 text-xs mb-3">Add your mobile number before sending an alert.</p>
+                      <button
+                        onClick={() => setActiveTab('settings')}
+                        className="bg-yellow-600 hover:bg-yellow-700 text-white text-sm font-bold px-4 py-2 rounded-lg transition-colors"
+                      >
+                        Go to Settings
+                      </button>
+                    </div>
+                  )}
                   <button onClick={triggerEmergency} className={`w-64 h-64 rounded-full flex flex-col items-center justify-center gap-2 shadow-lg border-4 transition-all ${emergencyType ? 'bg-red-600 border-red-800 hover:bg-red-700' : 'bg-gray-400 border-gray-600 cursor-not-allowed'}`}>
                       <AlertCircle className="w-24 h-24 text-white" />
                       <span className="font-bold text-xl uppercase tracking-widest text-white">Alertify</span>
@@ -379,15 +474,79 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
             <div className={`p-4 ${darkMode ? 'text-white' : 'text-black'}`}>
                 <h2 className="text-xl font-bold uppercase tracking-widest">Settings</h2>
                 <div className="space-y-6 mt-8">
-                     <div className="flex items-center justify-between">
+                    {/* Client Profile Section */}
+                    <div className={`border rounded-xl p-6 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
+                      <div className="flex items-center gap-3 mb-6">
+                        <User className="w-5 h-5" />
+                        <h3 className="font-bold text-lg">Profile</h3>
+                        {clientProfileIncomplete && !profileLoading && (
+                          <span className="text-xs font-bold bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">Incomplete</span>
+                        )}
+                        {!clientProfileIncomplete && !profileLoading && (
+                          <span className="text-xs font-bold bg-green-100 text-green-800 px-2 py-1 rounded-full">Complete</span>
+                        )}
+                      </div>
+
+                      {clientProfileIncomplete && !profileLoading && (
+                        <div className={`mb-5 p-3 rounded-lg text-sm border ${darkMode ? 'bg-yellow-900/30 border-yellow-700 text-yellow-300' : 'bg-yellow-50 border-yellow-300 text-yellow-800'}`}>
+                          Add your mobile number before sending an alert.
+                        </div>
+                      )}
+
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-bold mb-1 text-gray-500">Name</label>
+                          <input
+                            type="text"
+                            value={clientProfile.name}
+                            disabled
+                            className={`w-full p-3 rounded-lg border text-sm ${darkMode ? 'bg-gray-700 border-gray-600 text-gray-400' : 'bg-gray-100 border-gray-200 text-gray-500'} cursor-not-allowed`}
+                          />
+                          <p className="text-xs text-gray-400 mt-1">From your signup account</p>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-bold mb-1 text-gray-500">Email</label>
+                          <input
+                            type="email"
+                            value={clientProfile.email}
+                            disabled
+                            className={`w-full p-3 rounded-lg border text-sm ${darkMode ? 'bg-gray-700 border-gray-600 text-gray-400' : 'bg-gray-100 border-gray-200 text-gray-500'} cursor-not-allowed`}
+                          />
+                          <p className="text-xs text-gray-400 mt-1">From your signup account</p>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-bold mb-1 text-gray-500">Mobile Number</label>
+                          <input
+                            type="tel"
+                            value={clientProfile.phone}
+                            onChange={(e) => setClientProfile((prev) => ({ ...prev, phone: e.target.value }))}
+                            placeholder="e.g. +254 712 345 678"
+                            className={`w-full p-3 rounded-lg border text-sm ${darkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-black'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                          />
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={handleSaveProfile}
+                        disabled={profileSaving}
+                        className={`mt-6 w-full flex items-center justify-center gap-2 p-3 rounded-lg font-bold text-sm transition-all ${profileSaving ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
+                      >
+                        {profileSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                        {profileSaving ? 'Saving...' : 'Save Profile'}
+                      </button>
+
+                      {profileSaveMsg && (
+                        <p className={`mt-3 text-sm font-medium ${profileSaveMsg.includes('success') ? 'text-green-600' : 'text-red-600'}`}>
+                          {profileSaveMsg}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between">
                         <span className="font-bold">Dark Mode</span>
                         <button onClick={() => setDarkMode(!darkMode)} className={`w-12 h-6 ${darkMode ? 'bg-blue-600' : 'bg-gray-400'} rounded-full transition-all`}>
                             <div className={`w-4 h-4 bg-white rounded-full transition-all ${darkMode ? 'ml-7' : 'ml-1'}`}></div>
                         </button>
-                    </div>
-                    <div className="border-t border-gray-700 pt-6">
-                        <span className="font-bold block mb-2">Emergency Contacts</span>
-                        <button className="text-blue-500 text-sm font-bold">Manage Contacts</button>
                     </div>
                     <div className="border-t border-gray-700 pt-6">
                         <span className="font-bold block mb-2">Account Notifications</span>
