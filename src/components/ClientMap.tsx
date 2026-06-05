@@ -48,6 +48,7 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
   const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(null);
   const [mapZoom, setMapZoom] = useState(14);
   const prevResponderRef = useRef<ResponderLocation | null>(null);
+  const activeAlertResponderRef = useRef<ResponderLocation | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -64,6 +65,7 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
               .from('alerts')
               .select('*')
               .eq('id', focusedAlertId)
+              .eq('client_id', user.id)
               .maybeSingle();
           } else {
             alertQuery = await supabase
@@ -189,9 +191,10 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
             });
 
             // Update active alert responder location if this is them
-            if (activeAlertResponder && newData.id === activeAlertResponder.id && lat !== null && lng !== null) {
+            const current = activeAlertResponderRef.current;
+            if (current && newData.id === current.id && lat !== null && lng !== null) {
               setActiveAlertResponder({
-                ...activeAlertResponder,
+                ...current,
                 latitude: lat,
                 longitude: lng
               });
@@ -262,6 +265,7 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
             .from('alerts')
             .select('*')
             .eq('id', currentAlertId)
+            .eq('client_id', user.id)
             .maybeSingle();
         } else {
           alertQuery = await supabase
@@ -302,6 +306,11 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
       clearInterval(interval);
     };
   }, [focusedAlertId]);
+
+  // Keep ref in sync
+  useEffect(() => {
+    activeAlertResponderRef.current = activeAlertResponder;
+  }, [activeAlertResponder]);
 
   // Auto-center map when client or responder location changes
   useEffect(() => {
