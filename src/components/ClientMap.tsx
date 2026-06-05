@@ -11,6 +11,7 @@ interface ResponderLocation {
   latitude: number | null;
   longitude: number | null;
   last_location_update: string | null;
+  response_types: string[];
 }
 
 interface RouteInfo {
@@ -35,34 +36,7 @@ function toNum(v: unknown): number | null {
   return isFinite(n) ? n : null;
 }
 
-function decodePolyline(encoded: string): Array<{ lat: number; lng: number }> {
-  const poly = [];
-  let index = 0, lat = 0, lng = 0;
-  while (index < encoded.length) {
-    let result = 0, shift = 0;
-    let b;
-    do {
-      b = encoded.charCodeAt(index++) - 63;
-      result |= (b & 0x1f) << shift;
-      shift += 5;
-    } while (b >= 0x20);
-    const dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
-    lat += dlat;
-    result = 0;
-    shift = 0;
-    do {
-      b = encoded.charCodeAt(index++) - 63;
-      result |= (b & 0x1f) << shift;
-      shift += 5;
-    } while (b >= 0x20);
-    const dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
-    lng += dlng;
-    poly.push({ lat: lat / 1e5, lng: lng / 1e5 });
-  }
-  return poly;
-}
-
-export function ClientMap() {
+export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }) {
   const [clientLocation, setClientLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [responders, setResponders] = useState<ResponderLocation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,36 +54,49 @@ export function ClientMap() {
 
     const init = async () => {
       try {
-        // Get active alert if it exists
+        // If focusedAlertId is provided, load that specific alert first
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
-          const { data: alerts } = await supabase
-            .from('alerts')
-            .select('*')
-            .eq('client_id', user.id)
-            .eq('status', 'ACCEPTED')
-            .order('created_at', { ascending: false })
-            .limit(1);
+          let alertQuery;
 
-          if (alerts && alerts.length > 0 && mounted) {
-            setActiveAlert(alerts[0]);
+          if (focusedAlertId) {
+            alertQuery = await supabase
+              .from('alerts')
+              .select('*')
+              .eq('id', focusedAlertId)
+              .maybeSingle();
+          } else {
+            alertQuery = await supabase
+              .from('alerts')
+              .select('*')
+              .eq('client_id', user.id)
+              .in('status', ['ACTIVE', 'ACCEPTED'])
+              .order('created_at', { ascending: false })
+              .limit(1);
+          }
 
-            // Get responder info for this alert
-            if (alerts[0].current_responder_id) {
-              const { data: responderData } = await supabase
-                .from('profiles')
-                .select('id, name, latitude, longitude')
-                .eq('id', alerts[0].current_responder_id)
-                .maybeSingle();
+          if (alertQuery.data && mounted) {
+            const alert = Array.isArray(alertQuery.data) ? alertQuery.data[0] : alertQuery.data;
+            if (alert) {
+              setActiveAlert(alert);
 
-              if (responderData && mounted) {
-                setActiveAlertResponder({
-                  id: responderData.id,
-                  name: responderData.name,
-                  latitude: toNum(responderData.latitude),
-                  longitude: toNum(responderData.longitude),
-                  last_location_update: null,
-                });
+              if (alert.current_responder_id) {
+                const { data: responderData } = await supabase
+                  .from('profiles')
+                  .select('id, name, latitude, longitude, response_types')
+                  .eq('id', alert.current_responder_id)
+                  .maybeSingle();
+
+                if (responderData && mounted) {
+                  setActiveAlertResponder({
+                    id: responderData.id,
+                    name: responderData.name,
+                    latitude: toNum(responderData.latitude),
+                    longitude: toNum(responderData.longitude),
+                    last_location_update: null,
+                    response_types: responderData.response_types || [],
+                  });
+                }
               }
             }
           }
@@ -124,7 +111,6 @@ export function ClientMap() {
               const lng = position.coords.longitude;
               setClientLocation({ lat, lng });
 
-              // Update profile with current location and timestamp
               const { data: { user } } = await supabase.auth.getUser();
               if (user) {
                 await supabase
@@ -149,24 +135,23 @@ export function ClientMap() {
           setLocationError('Geolocation not supported — using default location (Nairobi)');
         }
 
-        // Fetch online responders (on_duty = true with valid coordinates)
-        const { data, error: fetchError } = await supabase
+        // Fetch ALL on-duty responders (even without location for the list)
+        const { data: onDutyResponders, error: fetchError } = await supabase
           .from('profiles')
-          .select('id, name, latitude, longitude, last_location_update, on_duty')
+          .select('id, name, latitude, longitude, last_location_update, on_duty, response_types')
           .eq('user_type', 'Responder')
-          .eq('on_duty', true)
-          .not('latitude', 'is', null)
-          .not('longitude', 'is', null);
+          .eq('on_duty', true);
 
         if (fetchError) throw fetchError;
         if (mounted) setResponders(
-          (data || []).map((r: any) => ({
+          (onDutyResponders || []).map((r: any) => ({
             id: r.id,
             name: r.name,
             latitude: toNum(r.latitude),
             longitude: toNum(r.longitude),
             last_location_update: r.last_location_update,
-          })).filter((r: ResponderLocation) => r.latitude !== null && r.longitude !== null)
+            response_types: r.response_types || [],
+          }))
         );
       } catch (err: any) {
         if (mounted) setError(err.message ?? 'Failed to load map data');
@@ -186,31 +171,29 @@ export function ClientMap() {
         (payload) => {
           if (payload.new && (payload.new as any).user_type === 'Responder') {
             const newData = payload.new as any;
-            // Update responders list based on on_duty status
+            const lat = toNum(newData.latitude);
+            const lng = toNum(newData.longitude);
             setResponders((prev) => {
               const filtered = prev.filter((r) => r.id !== newData.id);
-              const lat = toNum(newData.latitude);
-              const lng = toNum(newData.longitude);
-              if (newData.on_duty && lat !== null && lng !== null) {
+              if (newData.on_duty) {
                 return [...filtered, {
                   id: newData.id,
                   name: newData.name,
                   latitude: lat,
                   longitude: lng,
-                  last_location_update: newData.last_location_update
+                  last_location_update: newData.last_location_update,
+                  response_types: newData.response_types || [],
                 }];
               }
               return filtered;
             });
 
             // Update active alert responder location if this is them
-            const newLat = toNum(newData.latitude);
-            const newLng = toNum(newData.longitude);
-            if (activeAlertResponder && newData.id === activeAlertResponder.id && newLat !== null && newLng !== null) {
+            if (activeAlertResponder && newData.id === activeAlertResponder.id && lat !== null && lng !== null) {
               setActiveAlertResponder({
                 ...activeAlertResponder,
-                latitude: newLat,
-                longitude: newLng
+                latitude: lat,
+                longitude: lng
               });
             }
           }
@@ -228,11 +211,10 @@ export function ClientMap() {
           if (payload.new && (payload.new as any).status === 'ACCEPTED' && mounted) {
             setActiveAlert(payload.new);
 
-            // Fetch responder data for the accepted alert
             if ((payload.new as any).current_responder_id) {
               const { data: responderData } = await supabase
                 .from('profiles')
-                .select('id, name, latitude, longitude')
+                .select('id, name, latitude, longitude, response_types')
                 .eq('id', (payload.new as any).current_responder_id)
                 .maybeSingle();
 
@@ -243,6 +225,7 @@ export function ClientMap() {
                   latitude: toNum(responderData.latitude),
                   longitude: toNum(responderData.longitude),
                   last_location_update: null,
+                  response_types: responderData.response_types || [],
                 });
               }
             }
@@ -253,14 +236,11 @@ export function ClientMap() {
 
     // Periodically refresh responder list and active alert responder
     const interval = setInterval(async () => {
-      // Refresh general responders list
       const { data } = await supabase
         .from('profiles')
-        .select('id, name, latitude, longitude, last_location_update, on_duty')
+        .select('id, name, latitude, longitude, last_location_update, on_duty, response_types')
         .eq('user_type', 'Responder')
-        .eq('on_duty', true)
-        .not('latitude', 'is', null)
-        .not('longitude', 'is', null);
+        .eq('on_duty', true);
       if (mounted && data) setResponders(
         data.map((r: any) => ({
           id: r.id,
@@ -268,24 +248,36 @@ export function ClientMap() {
           latitude: toNum(r.latitude),
           longitude: toNum(r.longitude),
           last_location_update: r.last_location_update,
-        })).filter((r: ResponderLocation) => r.latitude !== null && r.longitude !== null)
+          response_types: r.response_types || [],
+        }))
       );
 
       // Refresh active alert responder location if there is one
       const { data: { user } } = await supabase.auth.getUser();
       if (user && mounted) {
-        const { data: alerts } = await supabase
-          .from('alerts')
-          .select('*')
-          .eq('client_id', user.id)
-          .eq('status', 'ACCEPTED')
-          .order('created_at', { ascending: false })
-          .limit(1);
+        const currentAlertId = focusedAlertId || undefined;
+        let alertQuery;
+        if (currentAlertId) {
+          alertQuery = await supabase
+            .from('alerts')
+            .select('*')
+            .eq('id', currentAlertId)
+            .maybeSingle();
+        } else {
+          alertQuery = await supabase
+            .from('alerts')
+            .select('*')
+            .eq('client_id', user.id)
+            .in('status', ['ACTIVE', 'ACCEPTED'])
+            .order('created_at', { ascending: false })
+            .limit(1);
+        }
 
+        const alerts = Array.isArray(alertQuery.data) ? alertQuery.data : alertQuery.data ? [alertQuery.data] : [];
         if (alerts && alerts.length > 0 && alerts[0].current_responder_id && mounted) {
           const { data: responderData } = await supabase
             .from('profiles')
-            .select('id, name, latitude, longitude')
+            .select('id, name, latitude, longitude, response_types')
             .eq('id', alerts[0].current_responder_id)
             .maybeSingle();
 
@@ -296,6 +288,7 @@ export function ClientMap() {
               latitude: toNum(responderData.latitude),
               longitude: toNum(responderData.longitude),
               last_location_update: null,
+              response_types: responderData.response_types || [],
             });
           }
         }
@@ -308,7 +301,7 @@ export function ClientMap() {
       alertChannel.unsubscribe();
       clearInterval(interval);
     };
-  }, []);
+  }, [focusedAlertId]);
 
   // Auto-center map when client or responder location changes
   useEffect(() => {
@@ -355,12 +348,13 @@ export function ClientMap() {
     && activeAlertResponder.latitude !== null
     && activeAlertResponder.longitude !== null;
 
-  const nearestResponder = responders.length > 0
-    ? responders.reduce((nearest, r) => {
-        if (r.latitude === null || r.longitude === null) return nearest;
-        const dist = haversineDistance(clientLocation.lat, clientLocation.lng, r.latitude, r.longitude);
+  const respondersWithLocation = responders.filter(r => r.latitude !== null && r.longitude !== null);
+
+  const nearestResponder = respondersWithLocation.length > 0
+    ? respondersWithLocation.reduce((nearest, r) => {
+        const dist = haversineDistance(clientLocation.lat, clientLocation.lng, r.latitude!, r.longitude!);
         return dist < nearest.dist ? { responder: r, dist } : nearest;
-      }, { responder: responders[0], dist: Infinity } as { responder: ResponderLocation, dist: number })
+      }, { responder: respondersWithLocation[0], dist: Infinity } as { responder: ResponderLocation, dist: number })
     : null;
 
   return (
@@ -377,7 +371,7 @@ export function ClientMap() {
           <div className="bg-green-900/30 text-green-500 px-3 py-1 rounded text-xs font-bold border border-green-900/50">
             ETA: ~{Math.max(1, Math.round(haversineDistance(clientLocation!.lat, clientLocation!.lng, activeAlertResponder.latitude!, activeAlertResponder.longitude!) / 0.5))} MINS
           </div>
-        ) : nearestResponder && nearestResponder.responder.latitude !== null && nearestResponder.responder.longitude !== null && (
+        ) : nearestResponder && (
           <div className="bg-green-900/30 text-green-500 px-3 py-1 rounded text-xs font-bold border border-green-900/50">
             ETA: ~{Math.max(1, Math.round(nearestResponder.dist / 0.5))} MINS
           </div>
@@ -388,7 +382,7 @@ export function ClientMap() {
       {activeAlert && (
         <div className="mb-3 bg-green-50 border border-green-200 rounded-lg p-3">
           <p className="text-xs font-bold text-green-700 uppercase tracking-wide">Active Emergency Alert</p>
-          <p className="text-sm font-bold text-green-600 mt-1">{activeAlertResponder?.name} is en route</p>
+          <p className="text-sm font-bold text-green-600 mt-1">{activeAlertResponder?.name || 'Awaiting responder...'} {activeAlertResponder ? 'is en route' : ''}</p>
         </div>
       )}
 
@@ -444,8 +438,8 @@ export function ClientMap() {
               </AdvancedMarker>
             )}
 
-            {/* Other responder markers */}
-            {responders.filter(r => !activeAlertResponder || r.id !== activeAlertResponder.id).filter(r => r.latitude !== null && r.longitude !== null).map((responder) => {
+            {/* Other on-duty responder markers */}
+            {respondersWithLocation.filter(r => !activeAlertResponder || r.id !== activeAlertResponder.id).map((responder) => {
               const dist = haversineDistance(clientLocation.lat, clientLocation.lng, responder.latitude!, responder.longitude!);
               return (
                 <AdvancedMarker
@@ -457,7 +451,7 @@ export function ClientMap() {
                       <Navigation className="w-4 h-4 text-white" />
                     </div>
                     <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap bg-slate-600 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow">
-                      {dist.toFixed(1)} km
+                      {responder.name} - {dist.toFixed(1)} km
                     </div>
                   </div>
                 </AdvancedMarker>
@@ -498,7 +492,7 @@ export function ClientMap() {
             </p>
             <p className="text-xs text-gray-500 mt-1">Waiting for responder location...</p>
           </>
-        ) : nearestResponder && nearestResponder.responder.latitude !== null && nearestResponder.responder.longitude !== null ? (
+        ) : nearestResponder ? (
           <>
             <p className="text-sm font-bold text-gray-400 uppercase tracking-wider">Nearest responder available</p>
             <p className="text-xl font-bold text-white mt-1">
@@ -509,7 +503,10 @@ export function ClientMap() {
             </p>
           </>
         ) : responders.length > 0 ? (
-          <p className="text-sm font-bold text-gray-400 uppercase tracking-wider">Responders available but not on-duty</p>
+          <div className="space-y-2">
+            <p className="text-sm font-bold text-gray-400 uppercase tracking-wider">{responders.length} responder{responders.length !== 1 ? 's' : ''} online</p>
+            <p className="text-xs text-gray-500">Location data not yet available</p>
+          </div>
         ) : (
           <div className="space-y-2">
             <p className="text-sm font-bold text-gray-400 uppercase tracking-wider">No responders online yet</p>
@@ -527,20 +524,33 @@ export function ClientMap() {
           </h3>
           <div className="space-y-2">
             {responders.map(r => {
-              const dist = r.latitude !== null && r.longitude !== null
-                ? haversineDistance(clientLocation.lat, clientLocation.lng, r.latitude, r.longitude)
-                : 0;
+              const hasLoc = r.latitude !== null && r.longitude !== null;
+              const dist = hasLoc
+                ? haversineDistance(clientLocation.lat, clientLocation.lng, r.latitude!, r.longitude!)
+                : null;
+              const types = r.response_types || [];
               return (
                 <div key={r.id} className="flex justify-between items-center bg-gray-800 p-3 rounded-lg">
                   <div className="flex items-center gap-2">
                     <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
                       <Navigation className="w-4 h-4 text-white" />
                     </div>
-                    <span className="font-medium text-white">{r.name}</span>
+                    <div>
+                      <span className="font-medium text-white block">{r.name}</span>
+                      {types.length > 0 && (
+                        <span className="text-[10px] text-gray-400">{types.join(', ')}</span>
+                      )}
+                    </div>
                   </div>
                   <div className="text-right">
-                    <span className="text-blue-400 font-bold text-sm">{dist.toFixed(2)} km</span>
-                    <p className="text-xs text-gray-500">~{Math.max(1, Math.round(dist / 0.5))} min ETA</p>
+                    {dist !== null ? (
+                      <>
+                        <span className="text-blue-400 font-bold text-sm">{dist.toFixed(2)} km</span>
+                        <p className="text-xs text-gray-500">~{Math.max(1, Math.round(dist / 0.5))} min ETA</p>
+                      </>
+                    ) : (
+                      <span className="text-xs text-gray-500">Location pending</span>
+                    )}
                   </div>
                 </div>
               );

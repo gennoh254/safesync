@@ -387,8 +387,8 @@ export function AlertDetailView({ alertId, onBack, onViewMap }: AlertDetailViewP
         </div>
       )}
 
-      {/* View Map Button - only when active and accepted */}
-      {isAccepted && (
+      {/* View Map Button - for active and accepted alerts */}
+      {(isActive || isAccepted) && (
         <button
           onClick={onViewMap}
           className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold transition-all text-sm flex items-center justify-center gap-2 mb-6"

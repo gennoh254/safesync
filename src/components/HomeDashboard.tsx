@@ -242,7 +242,7 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
                     )}
                     {activeTab === 'map' && (
                         <div className="flex-grow flex flex-col" style={{ height: 'calc(100vh - 80px)' }}>
-                            <ClientMap />
+                            <ClientMap focusedAlertId={selectedAlertId} />
                         </div>
                     )}
                 </div>
@@ -381,7 +381,7 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
         
         {activeTab === 'map' && (
             <div className="flex flex-col w-full" style={{ height: 'calc(100vh - 80px)' }}>
-                <ClientMap />
+                <ClientMap focusedAlertId={selectedAlertId} />
             </div>
         )}
         {activeTab === 'alerts' && (
@@ -406,11 +406,13 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {alertHistory.map((alert) => {
+                      {alertHistory.map((alert, index) => {
                         const isResolved = alert.status === 'RESOLVED';
                         const isUnresolved = alert.status === 'UNRESOLVED';
                         const isActive = alert.status === 'ACTIVE';
                         const isAccepted = alert.status === 'ACCEPTED';
+                        const isLive = isActive || isAccepted;
+                        const isNewestLive = isLive && index === 0;
                         const statusColor = isResolved
                           ? 'text-green-600 bg-green-50 border-green-200'
                           : isUnresolved
@@ -460,6 +462,15 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
                                 <CheckCircle className="w-4 h-4" />
                                 Resolved
                               </div>
+                            )}
+                            {isNewestLive && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setSelectedAlertId(alert.id); setActiveTab('map'); }}
+                                className="mt-3 w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-2 transition-all"
+                              >
+                                <MapIcon className="w-4 h-4" />
+                                VIEW MAP
+                              </button>
                             )}
                           </button>
                         );
