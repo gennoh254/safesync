@@ -1,5 +1,4 @@
-import { createClient } from "npm:@supabase/supabase-js@2.105.4";
-
+import { createClient } from "@supabase/supabase-js";
 interface RequestPayload {
   name: string;
   company: string;
