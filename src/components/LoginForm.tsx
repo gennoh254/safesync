@@ -1,7 +1,7 @@
 import { KeyRound, ShieldCheck, User, Mail, Building } from 'lucide-react';
 import React, { useState } from 'react';
 
-export type AccountType = 'Client' | 'Responder' | 'Administrator';
+export type AccountType = 'Client' | 'Responder';
 
 export function AuthForm({ onAuthenticate, onRecoverPassword }: { onAuthenticate: (type: AccountType) => void, onRecoverPassword: () => void }) {
   const [mode, setMode] = useState<'Login' | 'Signup'>('Login');
@@ -78,7 +78,6 @@ export function AuthForm({ onAuthenticate, onRecoverPassword }: { onAuthenticate
             >
                 <option value="Client">Client</option>
                 <option value="Responder">Responder</option>
-                <option value="Administrator">Administrator</option>
             </select>
         </div>
         

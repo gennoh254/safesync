@@ -3,78 +3,46 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { AuthForm, AccountType } from './components/LoginForm';
+import { PasswordRecovery } from './components/PasswordRecovery';
 import { HomeDashboard } from './components/HomeDashboard';
 import { ReceiverLayout } from './components/ReceiverLayout';
 import { AdminLayout } from './components/AdminLayout';
+import { AlertProvider } from './context/AlertContext';
 import { ThemeProvider } from './context/ThemeContext';
-import { supabase } from './lib/supabase';
+import { Header } from './components/Header';
+import { FooterStatusBar } from './components/Footer';
 
 export default function App() {
-  const [userType, setUserType] = useState<AccountType | 'Administrator' | null>(null);
-  const [sessionLoading, setSessionLoading] = useState(true);
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    setUserType(null);
-  };
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        (async () => {
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('user_type')
-            .eq('id', session.user.id)
-            .maybeSingle();
-          if (profile?.user_type) {
-            setUserType(profile.user_type as AccountType);
-          }
-        })();
-      }
-      setSessionLoading(false);
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_OUT') {
-        setUserType(null);
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  if (sessionLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-white">
-        <div className="w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
+  const [userType, setUserType] = useState<AccountType | null>(null);
+  const [authView, setAuthView] = useState<'login' | 'recovery'>('login');
 
   return (
     <ThemeProvider>
-      <div className="flex flex-col min-h-screen bg-white text-black items-center justify-center">
+      <AlertProvider>
         {!userType ? (
-          <>
-            <AuthForm onAuthenticate={(type) => setUserType(type)} />
-            <button
-              className="mt-6 text-xs text-gray-400 hover:text-gray-600"
-              onClick={() => setUserType('Administrator')}
-            >
-              Administrative Portal
-            </button>
-          </>
-        ) : userType === 'Client' ? (
-          <HomeDashboard onLogout={handleLogout} />
-        ) : userType === 'Responder' ? (
-          <ReceiverLayout onLogout={handleLogout} />
+          <div className="flex flex-col min-h-screen bg-gray-100 text-black">
+            <Header />
+            <main className="flex-grow flex items-center justify-center p-8">
+              {authView === 'login' ? (
+                <AuthForm onAuthenticate={(type) => setUserType(type)} onRecoverPassword={() => setAuthView('recovery')} />
+              ) : (
+                <PasswordRecovery onBack={() => setAuthView('login')} />
+              )}
+            </main>
+            <FooterStatusBar />
+          </div>
         ) : (
-          <AdminLayout onLogout={handleLogout} />
+          <div className="flex flex-col min-h-screen bg-white text-black items-center justify-center">
+            {userType === 'Client' ? (
+                <HomeDashboard />
+            ) : (
+                <ReceiverLayout />
+            )}
+          </div>
         )}
-      </div>
+      </AlertProvider>
     </ThemeProvider>
   );
 }
