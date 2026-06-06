@@ -100,9 +100,6 @@ export function AuthForm({ onAuthenticate, onRecoverPassword }: { onAuthenticate
             </button>
         </p>
 
-        <div className="text-center mt-6">
-            <button type="button" onClick={() => onAuthenticate('Administrator')} className="text-xs text-gray-500 hover:text-red-500">Administrative Portal</button>
-        </div>
       </form>
     </div>
   );
