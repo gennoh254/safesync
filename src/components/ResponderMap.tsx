@@ -1,5 +1,5 @@
 import { APIProvider, Map, AdvancedMarker } from '@vis.gl/react-google-maps';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { Navigation, Hop as Home, Loader as Loader2, CircleAlert as AlertCircle, Phone, Flame, HeartPulse, CircleAlert as AlertTriangle, User } from 'lucide-react';
 
@@ -49,6 +49,12 @@ export function ResponderMap({ darkMode, acceptedAlert }: { darkMode: boolean; a
   const [locationError, setLocationError] = useState<string | null>(null);
   const [selectedAlert, setSelectedAlert] = useState<AlertLocation | null>(acceptedAlert || null);
   const [clientInfo, setClientInfo] = useState<ClientInfo | null>(null);
+  const selectedAlertRef = useRef<AlertLocation | null>(acceptedAlert || null);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    selectedAlertRef.current = selectedAlert;
+  }, [selectedAlert]);
 
   // Fetch client info when selected alert changes
   useEffect(() => {
@@ -159,7 +165,23 @@ export function ResponderMap({ darkMode, acceptedAlert }: { darkMode: boolean; a
       .channel('responder-map-channel')
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'alerts' },
+        { event: 'UPDATE', schema: 'public', table: 'alerts' },
+        (payload) => {
+          if (payload.new) {
+            const updated = payload.new as AlertLocation;
+            // If the selected alert was resolved/cancelled, clear the selection
+            if (selectedAlertRef.current && selectedAlertRef.current.id === updated.id &&
+                ['RESOLVED', 'UNRESOLVED', 'CANCELLED'].includes(updated.status)) {
+              setSelectedAlert(null);
+              setClientInfo(null);
+            }
+          }
+          fetchAlerts();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'alerts' },
         () => {
           fetchAlerts();
         }
