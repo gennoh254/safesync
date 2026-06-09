@@ -1,9 +1,4 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AuthForm, AccountType } from './components/LoginForm';
 import { PasswordRecovery } from './components/PasswordRecovery';
 import { HomeDashboard } from './components/HomeDashboard';
@@ -12,15 +7,78 @@ import { AlertProvider } from './context/AlertContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { Header } from './components/Header';
 import { FooterStatusBar } from './components/Footer';
+import { supabase } from './lib/supabase';
 
 export default function App() {
   const [userType, setUserType] = useState<AccountType | null>(null);
   const [authView, setAuthView] = useState<'login' | 'recovery'>('login');
+  const [initializing, setInitializing] = useState(true);
 
-  const handleLogout = () => {
+  // Listen for auth state changes (handles session restore, login, logout)
+  useEffect(() => {
+    let mounted = true;
+
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user && mounted) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('user_type')
+          .eq('id', session.user.id)
+          .maybeSingle();
+
+        if (profile && mounted) {
+          setUserType(profile.user_type as AccountType);
+        }
+      }
+      if (mounted) setInitializing(false);
+    };
+
+    checkSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!mounted) return;
+
+      if (event === 'SIGNED_OUT' || !session) {
+        setUserType(null);
+        setAuthView('login');
+        return;
+      }
+
+      if (session?.user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('user_type')
+          .eq('id', session.user.id)
+          .maybeSingle();
+
+        if (profile) {
+          setUserType(profile.user_type as AccountType);
+        }
+      }
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     setUserType(null);
     setAuthView('login');
   };
+
+  if (initializing) {
+    return (
+      <ThemeProvider>
+        <div className="flex items-center justify-center min-h-screen bg-gray-100">
+          <div className="animate-spin w-8 h-8 border-4 border-red-600 border-t-transparent rounded-full"></div>
+        </div>
+      </ThemeProvider>
+    );
+  }
 
   return (
     <ThemeProvider>
