@@ -1,13 +1,14 @@
 import { APIProvider, Map, AdvancedMarker, Polyline } from '@vis.gl/react-google-maps';
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Navigation, Hop as Home, Loader as Loader2, CircleAlert as AlertCircle, Users, CircleCheck as CheckCircle, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { Navigation, Hop as Home, Loader as Loader2, CircleAlert as AlertCircle, Users, CircleCheck as CheckCircle, X, ChevronDown, ChevronUp, Phone } from 'lucide-react';
 
 const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_PLATFORM_KEY || process.env.GOOGLE_MAPS_PLATFORM_KEY || '';
 
 interface ResponderLocation {
   id: string;
   name: string;
+  phone: string | null;
   latitude: number | null;
   longitude: number | null;
   last_location_update: string | null;
@@ -79,7 +80,7 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
               if (alert.current_responder_id) {
                 const { data: responderData } = await supabase
                   .from('profiles')
-                  .select('id, name, latitude, longitude, response_types')
+                  .select('id, name, phone, latitude, longitude, response_types')
                   .eq('id', alert.current_responder_id)
                   .maybeSingle();
 
@@ -87,6 +88,7 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
                   setActiveAlertResponder({
                     id: responderData.id,
                     name: responderData.name,
+                    phone: responderData.phone,
                     latitude: toNum(responderData.latitude),
                     longitude: toNum(responderData.longitude),
                     last_location_update: null,
@@ -208,7 +210,7 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
             if ((payload.new as any).current_responder_id) {
               const { data: responderData } = await supabase
                 .from('profiles')
-                .select('id, name, latitude, longitude, response_types')
+                .select('id, name, phone, latitude, longitude, response_types')
                 .eq('id', (payload.new as any).current_responder_id)
                 .maybeSingle();
 
@@ -216,6 +218,7 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
                 setActiveAlertResponder({
                   id: responderData.id,
                   name: responderData.name,
+                  phone: responderData.phone,
                   latitude: toNum(responderData.latitude),
                   longitude: toNum(responderData.longitude),
                   last_location_update: null,
@@ -270,7 +273,7 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
         if (alerts && alerts.length > 0 && alerts[0].current_responder_id && mounted) {
           const { data: responderData } = await supabase
             .from('profiles')
-            .select('id, name, latitude, longitude, response_types')
+            .select('id, name, phone, latitude, longitude, response_types')
             .eq('id', alerts[0].current_responder_id)
             .maybeSingle();
 
@@ -278,6 +281,7 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
             setActiveAlertResponder({
               id: responderData.id,
               name: responderData.name,
+              phone: responderData.phone,
               latitude: toNum(responderData.latitude),
               longitude: toNum(responderData.longitude),
               last_location_update: null,
@@ -503,10 +507,19 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
                   </div>
                   <div className="flex-grow">
                     <p className="font-bold text-white">{activeAlertResponder.name}</p>
-                    <p className="text-blue-400 font-bold text-sm">
+                    <p className="text-xs text-gray-400">{activeAlertResponder.phone || 'No phone number'}</p>
+                    <p className="text-blue-400 font-bold text-sm mt-0.5">
                       {haversineDistance(clientLocation!.lat, clientLocation!.lng, activeAlertResponder.latitude!, activeAlertResponder.longitude!).toFixed(2)} km away
                     </p>
                   </div>
+                  {activeAlertResponder.phone && (
+                    <a
+                      href={`tel:${activeAlertResponder.phone}`}
+                      className="w-10 h-10 rounded-full bg-green-600 flex items-center justify-center hover:bg-green-700 transition-colors shrink-0"
+                    >
+                      <Phone className="w-5 h-5 text-white" />
+                    </a>
+                  )}
                 </div>
                 <p className="text-xs text-gray-400 mt-2">Blue line shows the shortest route</p>
               </>
@@ -517,10 +530,19 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
                   <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center shrink-0">
                     <Navigation className="w-5 h-5 text-white" />
                   </div>
-                  <div>
+                  <div className="flex-grow">
                     <p className="font-bold text-white">{activeAlertResponder.name}</p>
-                    <p className="text-xs text-gray-500">Waiting for responder location...</p>
+                    <p className="text-xs text-gray-400">{activeAlertResponder.phone || 'No phone number'}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">Waiting for responder location...</p>
                   </div>
+                  {activeAlertResponder.phone && (
+                    <a
+                      href={`tel:${activeAlertResponder.phone}`}
+                      className="w-10 h-10 rounded-full bg-green-600 flex items-center justify-center hover:bg-green-700 transition-colors shrink-0"
+                    >
+                      <Phone className="w-5 h-5 text-white" />
+                    </a>
+                  )}
                 </div>
               </>
             ) : (

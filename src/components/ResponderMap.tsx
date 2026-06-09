@@ -1,7 +1,7 @@
 import { APIProvider, Map, AdvancedMarker } from '@vis.gl/react-google-maps';
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Navigation, Hop as Home, Loader as Loader2, CircleAlert as AlertCircle, Phone, CircleCheck as CheckCircle, Flame, HeartPulse, CircleAlert as AlertTriangle, User } from 'lucide-react';
+import { Navigation, Hop as Home, Loader as Loader2, CircleAlert as AlertCircle, Phone, Flame, HeartPulse, CircleAlert as AlertTriangle, User } from 'lucide-react';
 
 const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_PLATFORM_KEY || process.env.GOOGLE_MAPS_PLATFORM_KEY || '';
 
@@ -28,7 +28,7 @@ interface AcceptedAlert {
 interface ClientInfo {
   id: string;
   name: string;
-  email: string;
+  phone: string | null;
 }
 
 function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -56,7 +56,7 @@ export function ResponderMap({ darkMode, acceptedAlert }: { darkMode: boolean; a
       if (selectedAlert?.client_id) {
         const { data } = await supabase
           .from('profiles')
-          .select('id, name, email')
+          .select('id, name, phone')
           .eq('id', selectedAlert.client_id)
           .maybeSingle();
         if (data) setClientInfo(data as ClientInfo);
@@ -183,21 +183,6 @@ export function ResponderMap({ darkMode, acceptedAlert }: { darkMode: boolean; a
       clearInterval(locationInterval);
     };
   }, []);
-
-  const handleResolveAlert = async (alertId: string) => {
-    try {
-      const { error: err } = await supabase
-        .from('alerts')
-        .update({ status: 'RESOLVED', resolved_at: new Date().toISOString() })
-        .eq('id', alertId);
-      if (err) throw err;
-      setAlerts(alerts.filter(a => a.id !== alertId));
-      setSelectedAlert(null);
-      setClientInfo(null);
-    } catch (err: any) {
-      setError(err.message ?? 'Failed to resolve alert');
-    }
-  };
 
   const getAlertIcon = (type: string) => {
     if (type === 'FIRE') return <Flame className="w-4 h-4 text-white" />;
@@ -359,33 +344,26 @@ export function ResponderMap({ darkMode, acceptedAlert }: { darkMode: boolean; a
                 </div>
                 <div className="flex-grow">
                   <p className="font-bold">{clientInfo.name}</p>
-                  <p className="text-xs text-gray-500">{clientInfo.email}</p>
+                  <p className="text-xs text-gray-500">{clientInfo.phone || 'No phone number'}</p>
                 </div>
-                <a
-                  href={`mailto:${clientInfo.email}`}
-                  className="w-10 h-10 rounded-full bg-green-600 flex items-center justify-center hover:bg-green-700 transition-colors"
-                >
-                  <Phone className="w-5 h-5 text-white" />
-                </a>
+                {clientInfo.phone && (
+                  <a
+                    href={`tel:${clientInfo.phone}`}
+                    className="w-10 h-10 rounded-full bg-green-600 flex items-center justify-center hover:bg-green-700 transition-colors"
+                  >
+                    <Phone className="w-5 h-5 text-white" />
+                  </a>
+                )}
               </div>
             )}
 
-            {/* Action buttons */}
-            <div className="flex gap-2">
-              <button
-                onClick={() => handleResolveAlert(selectedAlert.id)}
-                className="flex-grow bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl transition-colors flex items-center justify-center gap-2"
-              >
-                <CheckCircle className="w-5 h-5" />
-                RESOLVE
-              </button>
-              <button
-                onClick={() => { setSelectedAlert(null); setClientInfo(null); }}
-                className="px-4 bg-gray-200 hover:bg-gray-300 rounded-xl text-gray-700 transition-colors font-bold"
-              >
-                BACK
-              </button>
-            </div>
+            {/* Action button */}
+            <button
+              onClick={() => { setSelectedAlert(null); setClientInfo(null); }}
+              className="w-full bg-gray-200 hover:bg-gray-300 rounded-xl text-gray-700 transition-colors font-bold py-3"
+            >
+              BACK
+            </button>
           </div>
         ) : (
           <>
