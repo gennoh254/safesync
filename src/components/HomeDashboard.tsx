@@ -91,6 +91,29 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
     fetchProfile();
   }, []);
 
+  // Check for existing active alerts on mount
+  useEffect(() => {
+    const checkActiveAlert = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: existingAlerts } = await supabase
+        .from('alerts')
+        .select('id, status')
+        .eq('client_id', user.id)
+        .in('status', ['ACTIVE', 'ACCEPTED'])
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (existingAlerts && existingAlerts.length > 0) {
+        setIsAlertActive(true);
+        setSelectedAlertId(existingAlerts[0].id);
+      }
+    };
+
+    checkActiveAlert();
+  }, []);
+
   // Subscribe to alert changes to auto-reset isAlertActive when alert is resolved
   useEffect(() => {
     let mounted = true;
@@ -105,6 +128,7 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
             const updated = payload.new as any;
             if (['RESOLVED', 'UNRESOLVED', 'CANCELLED'].includes(updated.status)) {
               setIsAlertActive(false);
+              setSelectedAlertId(null);
             }
           }
         }
@@ -127,6 +151,9 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
       setActiveTab('settings');
       return;
     }
+
+    // Clear any previous error
+    setAlertError(null);
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -320,6 +347,22 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
 
               {/* Mobile View: Simple SOS Button and Emergency Buttons */}
               <div className="flex flex-col items-center justify-center w-full p-4 lg:hidden">
+                  {/* Error message */}
+                  {alertError && (
+                    <div className="w-full mb-6 border border-red-300 bg-red-50 rounded-xl p-4 text-center">
+                      <div className="flex items-center justify-center gap-2 text-red-700 font-bold text-sm mb-2">
+                        <AlertTriangle className="w-5 h-5" />
+                        Error
+                      </div>
+                      <p className="text-red-700 text-xs mb-3">{alertError}</p>
+                      <button
+                        onClick={() => setAlertError(null)}
+                        className="text-red-600 text-xs underline"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  )}
                   {clientProfileIncomplete && !profileLoading && (
                     <div className="w-full mb-6 border border-yellow-300 bg-yellow-50 rounded-xl p-4 text-center">
                       <div className="flex items-center justify-center gap-2 text-yellow-700 font-bold text-sm mb-2">
@@ -365,6 +408,22 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
 
               {/* Web View: More structured SOS and Emergency Buttons */}
               <div className="hidden lg:flex flex-col items-center justify-center w-full border rounded-2xl p-12">
+                  {/* Error message */}
+                  {alertError && (
+                    <div className="w-full max-w-md mb-6 border border-red-300 bg-red-50 rounded-xl p-4 text-center">
+                      <div className="flex items-center justify-center gap-2 text-red-700 font-bold text-sm mb-2">
+                        <AlertTriangle className="w-5 h-5" />
+                        Error
+                      </div>
+                      <p className="text-red-700 text-xs mb-3">{alertError}</p>
+                      <button
+                        onClick={() => setAlertError(null)}
+                        className="text-red-600 text-xs underline"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  )}
                   {clientProfileIncomplete && !profileLoading && (
                     <div className="w-full max-w-md mb-6 border border-yellow-300 bg-yellow-50 rounded-xl p-4 text-center">
                       <div className="flex items-center justify-center gap-2 text-yellow-700 font-bold text-sm mb-2">

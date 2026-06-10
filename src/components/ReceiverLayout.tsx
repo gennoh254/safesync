@@ -167,8 +167,36 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
 
       setupSubscription();
 
+      // Poll for alerts assigned to this responder (fallback for missed real-time events)
+      const pollInterval = setInterval(async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user || hasActiveAlert) return;
+
+        const { data } = await supabase
+          .from('alerts')
+          .select('*')
+          .eq('status', 'ACTIVE')
+          .eq('current_responder_id', user.id)
+          .maybeSingle();
+
+        if (data && !incomingAlert) {
+          setIncomingAlert({
+            id: data.id,
+            emergency_type: data.emergency_type,
+            location: data.location,
+            latitude: data.latitude,
+            longitude: data.longitude,
+            client_id: data.client_id,
+            created_at: data.created_at,
+            current_responder_id: data.current_responder_id,
+            notified_responder_ids: data.notified_responder_ids
+          });
+        }
+      }, 5000);
+
       return () => {
         if (channel) channel.unsubscribe();
+        clearInterval(pollInterval);
       };
     }, [hasActiveAlert, incomingAlert]);
 
