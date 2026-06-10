@@ -11,10 +11,12 @@ interface AcceptedAlert {
 
 export function ReceiverTrackingPage({
   darkMode,
-  acceptedAlert
+  acceptedAlert,
+  onAlertResolved
 }: {
   darkMode: boolean;
   acceptedAlert?: AcceptedAlert | null;
+  onAlertResolved?: () => void;
 }) {
-  return <ResponderMap darkMode={darkMode} acceptedAlert={acceptedAlert} />;
+  return <ResponderMap darkMode={darkMode} acceptedAlert={acceptedAlert} onAlertResolved={onAlertResolved} />;
 }

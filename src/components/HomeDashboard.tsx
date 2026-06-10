@@ -135,6 +135,20 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
         return;
       }
 
+      // Check for existing active alerts - client can only have one active alert at a time
+      const { data: existingAlerts } = await supabase
+        .from('alerts')
+        .select('id')
+        .eq('client_id', user.id)
+        .in('status', ['ACTIVE', 'ACCEPTED'])
+        .limit(1);
+
+      if (existingAlerts && existingAlerts.length > 0) {
+        setAlertError('You already have an active alert. Please resolve it before creating a new one.');
+        setActiveTab('alerts');
+        return;
+      }
+
       // Get real location from browser
       let latitude: number | null = null;
       let longitude: number | null = null;
@@ -156,18 +170,40 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
         }
       }
 
-      const { error } = await supabase.from('alerts').insert({
+      // Insert alert with no responder assigned initially
+      const { data: alertData, error } = await supabase.from('alerts').insert({
         client_id: user.id,
         emergency_type: emergencyType,
         location: locationText,
         latitude,
         longitude,
         status: 'ACTIVE',
-      });
+        notified_responder_ids: [],
+      }).select('id').single();
 
       if (error) throw error;
+
       setIsAlertActive(true);
       setAlertError(null);
+
+      // Call edge function to find and assign nearest responder
+      if (alertData?.id) {
+        try {
+          const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+          const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+          await fetch(`${supabaseUrl}/functions/v1/find_nearest_responder`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${supabaseAnonKey}`,
+            },
+            body: JSON.stringify({ alertId: alertData.id }),
+          });
+        } catch (routeErr) {
+          console.warn('Failed to route alert to responder:', routeErr);
+          // Alert was still created, just routing failed
+        }
+      }
     } catch (err: any) {
       setAlertError(err.message ?? 'Failed to send alert');
     }

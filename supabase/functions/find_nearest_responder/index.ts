@@ -1,0 +1,191 @@
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "jsr:@supabase/supabase-js@2";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
+};
+
+interface Alert {
+  id: string;
+  latitude: number | null;
+  longitude: number | null;
+  emergency_type: string;
+  notified_responder_ids: string[] | null;
+}
+
+interface Responder {
+  id: string;
+  name: string;
+  phone: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  response_types: string[];
+}
+
+function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371; // Earth's radius in km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 200, headers: corsHeaders });
+  }
+
+  try {
+    const { alertId, excludeIds } = await req.json();
+
+    if (!alertId) {
+      return new Response(JSON.stringify({ error: "alertId is required" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Get alert details
+    const { data: alert, error: alertError } = await supabase
+      .from("alerts")
+      .select("*")
+      .eq("id", alertId)
+      .maybeSingle();
+
+    if (alertError || !alert) {
+      return new Response(JSON.stringify({ error: "Alert not found" }), {
+        status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const alertData = alert as Alert;
+
+    // Can't route without coordinates
+    if (!alertData.latitude || !alertData.longitude) {
+      return new Response(JSON.stringify({ error: "Alert has no location coordinates" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Get excluded IDs from request or use the alert's notified_responder_ids
+    const excludeResponderIds = excludeIds || alertData.notified_responder_ids || [];
+
+    // Find available on-duty responders who:
+    // 1. Are on duty
+    // 2. Don't have an active alert
+    // 3. Haven't been notified about this alert
+    // 4. Have location data
+    // 5. Match the emergency type (if fire, only send to fire responders; if medical, to medical)
+    const { data: responders, error: respondersError } = await supabase
+      .from("profiles")
+      .select("id, name, phone, latitude, longitude, response_types")
+      .eq("user_type", "Responder")
+      .eq("on_duty", true)
+      .eq("has_active_alert", false)
+      .not("latitude", "is", null)
+      .not("longitude", "is", null);
+
+    if (respondersError) {
+      return new Response(JSON.stringify({ error: "Failed to fetch responders" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Filter by response type and excluded IDs
+    const eligibleResponders = (responders as Responder[]).filter((r) => {
+      // Exclude already notified responders
+      if (excludeResponderIds.includes(r.id)) return false;
+
+      // Check if responder handles this emergency type
+      if (r.response_types && r.response_types.length > 0) {
+        return r.response_types.includes(alertData.emergency_type);
+      }
+      // If no response types set, allow them (fallback)
+      return true;
+    });
+
+    if (eligibleResponders.length === 0) {
+      return new Response(JSON.stringify({
+        success: false,
+        message: "No eligible responders available",
+        responder: null
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Find nearest responder
+    const alertLat = alertData.latitude;
+    const alertLng = alertData.longitude;
+
+    const respondersWithDistance = eligibleResponders
+      .filter((r) => r.latitude !== null && r.longitude !== null)
+      .map((r) => ({
+        ...r,
+        distance: haversineDistance(alertLat, alertLng, r.latitude!, r.longitude!)
+      }))
+      .sort((a, b) => a.distance - b.distance);
+
+    const nearestResponder = respondersWithDistance[0];
+
+    if (!nearestResponder) {
+      return new Response(JSON.stringify({
+        success: false,
+        message: "No responders with valid location data",
+        responder: null
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Update the alert to assign to this responder
+    const { error: updateError } = await supabase
+      .from("alerts")
+      .update({
+        current_responder_id: nearestResponder.id,
+        notified_responder_ids: [...excludeResponderIds, nearestResponder.id]
+      })
+      .eq("id", alertId);
+
+    if (updateError) {
+      console.error("Failed to update alert:", updateError);
+      return new Response(JSON.stringify({ error: "Failed to assign responder" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({
+      success: true,
+      responder: {
+        id: nearestResponder.id,
+        name: nearestResponder.name,
+        phone: nearestResponder.phone,
+        distance: nearestResponder.distance
+      }
+    }), {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+
+  } catch (err) {
+    console.error("Error in find_nearest_responder:", err);
+    return new Response(JSON.stringify({ error: "Internal server error" }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+});

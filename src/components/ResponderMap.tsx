@@ -41,7 +41,7 @@ function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: numbe
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-export function ResponderMap({ darkMode, acceptedAlert }: { darkMode: boolean; acceptedAlert?: AcceptedAlert | null }) {
+export function ResponderMap({ darkMode, acceptedAlert, onAlertResolved }: { darkMode: boolean; acceptedAlert?: AcceptedAlert | null; onAlertResolved?: () => void }) {
   const [responderLocation, setResponderLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [alerts, setAlerts] = useState<AlertLocation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,6 +50,12 @@ export function ResponderMap({ darkMode, acceptedAlert }: { darkMode: boolean; a
   const [selectedAlert, setSelectedAlert] = useState<AlertLocation | null>(acceptedAlert || null);
   const [clientInfo, setClientInfo] = useState<ClientInfo | null>(null);
   const selectedAlertRef = useRef<AlertLocation | null>(acceptedAlert || null);
+  const onAlertResolvedRef = useRef(onAlertResolved);
+
+  // Keep callback ref updated
+  useEffect(() => {
+    onAlertResolvedRef.current = onAlertResolved;
+  }, [onAlertResolved]);
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -166,7 +172,7 @@ export function ResponderMap({ darkMode, acceptedAlert }: { darkMode: boolean; a
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'alerts' },
-        (payload) => {
+        async (payload) => {
           if (payload.new) {
             const updated = payload.new as AlertLocation;
             // If the selected alert was resolved/cancelled, clear the selection
@@ -174,6 +180,20 @@ export function ResponderMap({ darkMode, acceptedAlert }: { darkMode: boolean; a
                 ['RESOLVED', 'UNRESOLVED', 'CANCELLED'].includes(updated.status)) {
               setSelectedAlert(null);
               setClientInfo(null);
+
+              // Clear responder's active alert status
+              const { data: { user } } = await supabase.auth.getUser();
+              if (user) {
+                await supabase
+                  .from('profiles')
+                  .update({ has_active_alert: false })
+                  .eq('id', user.id);
+
+                // Notify parent component
+                if (onAlertResolvedRef.current) {
+                  onAlertResolvedRef.current();
+                }
+              }
             }
           }
           fetchAlerts();
