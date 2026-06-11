@@ -89,7 +89,6 @@ export function AuthForm({ onAuthenticate, onRecoverPassword }: { onAuthenticate
             >
                 <option value="Client">Client</option>
                 <option value="Responder">Responder</option>
-                <option value="Administrator">Administrator</option>
             </select>
         </div>
         
