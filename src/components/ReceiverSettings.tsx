@@ -1,7 +1,8 @@
-import { User, Flame, HeartPulse, Save, Loader } from 'lucide-react';
+import { User, Flame, HeartPulse, Save, Loader, Volume2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { supabase } from '../lib/supabase';
+import { useEmergencyAlert, initAudioContext } from '../hooks/useEmergencyAlert';
 
 interface ProfileData {
   name: string;
@@ -13,12 +14,18 @@ interface ProfileData {
 export function ReceiverSettings() {
   const { theme, toggleTheme } = useTheme();
   const darkMode = theme === 'dark';
+  const { testAlert } = useEmergencyAlert();
 
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [profile, setProfile] = useState<ProfileData>({ name: '', email: '', phone: '', response_types: [] });
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const handleTestAlertSound = () => {
+    initAudioContext();
+    testAlert();
+  };
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -234,11 +241,24 @@ export function ReceiverSettings() {
 
         {/* Notifications */}
         <div className="border-t pt-6">
-          <span className="font-bold block mb-4">Account Notifications</span>
-          <div className="flex justify-between items-center">
-            <span className="text-sm">Enable Sound</span>
-            <button onClick={() => setNotificationsEnabled(!notificationsEnabled)} className={`w-12 h-6 ${notificationsEnabled ? 'bg-blue-600' : 'bg-gray-400'} rounded-full transition-all`}>
-              <div className={`w-4 h-4 bg-white rounded-full transition-all ${notificationsEnabled ? 'ml-7' : 'ml-1'}`}></div>
+          <span className="font-bold block mb-4">Alert Settings</span>
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <span className="text-sm">Enable Sound Alerts</span>
+              <button onClick={() => setNotificationsEnabled(!notificationsEnabled)} className={`w-12 h-6 ${notificationsEnabled ? 'bg-blue-600' : 'bg-gray-400'} rounded-full transition-all`}>
+                <div className={`w-4 h-4 bg-white rounded-full transition-all ${notificationsEnabled ? 'ml-7' : 'ml-1'}`}></div>
+              </button>
+            </div>
+            <button
+              onClick={handleTestAlertSound}
+              className={`w-full flex items-center justify-center gap-2 p-3 rounded-lg border text-sm font-bold transition-all ${
+                darkMode
+                  ? 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
+                  : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
+              }`}
+            >
+              <Volume2 className="w-4 h-4" />
+              Test Alert Sound
             </button>
           </div>
         </div>

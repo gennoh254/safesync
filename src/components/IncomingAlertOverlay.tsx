@@ -1,6 +1,6 @@
-import { Flame, HeartPulse, MapPin, Clock, Phone, X, CircleCheck as CheckCircle, Volume2 } from 'lucide-react';
+import { Flame, HeartPulse, MapPin, Clock, Phone, X, CircleCheck as CheckCircle, Volume2, VolumeX } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { useEmergencyAlert } from '../hooks/useEmergencyAlert';
+import { useEmergencyAlert, initAudioContext } from '../hooks/useEmergencyAlert';
 
 interface IncomingAlert {
   id: string;
@@ -17,7 +17,7 @@ interface IncomingAlertOverlayProps {
   onAccept: () => void;
   onDecline: () => void;
   onTimeout: () => void;
-  duration?: number; // in seconds, default 120 (2 minutes)
+  duration?: number;
 }
 
 export function IncomingAlertOverlay({
@@ -29,32 +29,61 @@ export function IncomingAlertOverlay({
 }: IncomingAlertOverlayProps) {
   const [timeLeft, setTimeLeft] = useState(duration);
   const [isMuted, setIsMuted] = useState(false);
+  const [audioStarted, setAudioStarted] = useState(false);
+  const [needsUserGesture, setNeedsUserGesture] = useState(false);
   const acceptButtonRef = useRef<HTMLButtonElement>(null);
   const { startAlert, stopAlert, testAlert } = useEmergencyAlert();
 
-  // Start emergency alert sound and vibration
   useEffect(() => {
-    // Resume audio context on user interaction would be needed
-    // For now, start the alert immediately
-    const startAudio = async () => {
-      startAlert({
-        duration: duration * 1000,
-        onVibrate: true,
-        onSound: !isMuted
-      });
+    const tryStartAudio = async () => {
+      try {
+        const ctx = initAudioContext();
+        if (ctx.state === 'suspended') {
+          setNeedsUserGesture(true);
+        } else {
+          startAlert({
+            duration: duration * 1000,
+            onVibrate: true,
+            onSound: !isMuted
+          });
+          setAudioStarted(true);
+        }
+      } catch {
+        setNeedsUserGesture(true);
+      }
     };
 
-    startAudio();
-
-    // Auto-focus accept button
+    tryStartAudio();
     acceptButtonRef.current?.focus();
 
     return () => {
       stopAlert();
     };
-  }, [duration, startAlert, stopAlert, isMuted]);
+  }, [duration]);
 
-  // Countdown timer
+  const handleEnableSound = () => {
+    const ctx = initAudioContext();
+    if (ctx.state === 'suspended') {
+      ctx.resume().then(() => {
+        setNeedsUserGesture(false);
+        startAlert({
+          duration: timeLeft * 1000,
+          onVibrate: true,
+          onSound: !isMuted
+        });
+        setAudioStarted(true);
+      });
+    } else {
+      setNeedsUserGesture(false);
+      startAlert({
+        duration: timeLeft * 1000,
+        onVibrate: true,
+        onSound: !isMuted
+      });
+      setAudioStarted(true);
+    }
+  };
+
   useEffect(() => {
     if (timeLeft <= 0) {
       stopAlert();
@@ -67,7 +96,7 @@ export function IncomingAlertOverlay({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [timeLeft, onTimeout, stopAlert]);
+  }, [timeLeft, onTimeout]);
 
   const handleAccept = () => {
     stopAlert();
@@ -83,8 +112,10 @@ export function IncomingAlertOverlay({
     setIsMuted(!isMuted);
     if (!isMuted) {
       stopAlert();
-    } else {
+      setAudioStarted(false);
+    } else if (audioStarted || !needsUserGesture) {
       startAlert({ duration: timeLeft * 1000, onVibrate: true, onSound: true });
+      setAudioStarted(true);
     }
   };
 
@@ -123,28 +154,35 @@ export function IncomingAlertOverlay({
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm">
       <div className="relative w-full max-w-md mx-4 animate-pulse">
-        {/* Pulsing background effect */}
         <div className="absolute inset-0 bg-red-500/20 rounded-3xl animate-ping" />
         <div className="absolute inset-0 bg-orange-500/10 rounded-3xl" />
 
-        {/* Main card */}
         <div className="relative bg-slate-900 rounded-3xl border-4 border-red-500 shadow-2xl overflow-hidden">
-          {/* Header with timer */}
           <div className={`flex justify-between items-center p-4 ${isUrgent ? 'bg-red-600' : 'bg-slate-800'}`}>
             <div className="flex items-center gap-2 text-white">
               <Clock className="w-5 h-5" />
               <span className="font-bold text-lg">{formatTime(timeLeft)}</span>
             </div>
-            <button
-              onClick={handleMuteToggle}
-              className="p-2 rounded-full hover:bg-white/20 transition-colors text-white"
-              title={isMuted ? 'Unmute alert' : 'Mute alert'}
-            >
-              <Volume2 className={`w-5 h-5 ${isMuted ? 'opacity-50' : ''}`} />
-            </button>
+            <div className="flex items-center gap-2">
+              {needsUserGesture && !isMuted && (
+                <button
+                  onClick={handleEnableSound}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-yellow-500 text-black text-xs font-bold hover:bg-yellow-400 transition-colors"
+                >
+                  <VolumeX className="w-4 h-4" />
+                  Enable Sound
+                </button>
+              )}
+              <button
+                onClick={handleMuteToggle}
+                className="p-2 rounded-full hover:bg-white/20 transition-colors text-white"
+                title={isMuted ? 'Unmute alert' : 'Mute alert'}
+              >
+                <Volume2 className={`w-5 h-5 ${isMuted ? 'opacity-50' : ''}`} />
+              </button>
+            </div>
           </div>
 
-          {/* Progress bar */}
           <div className="h-1 bg-slate-700">
             <div
               className={`h-full transition-all duration-1000 ${isUrgent ? 'bg-red-500' : 'bg-orange-500'}`}
@@ -152,9 +190,7 @@ export function IncomingAlertOverlay({
             />
           </div>
 
-          {/* Content */}
           <div className="p-8 text-center">
-            {/* Emergency icon */}
             <div className="flex justify-center mb-6">
               <div className="relative">
                 <div className="absolute inset-0 bg-red-500/30 rounded-full animate-ping" />
@@ -164,13 +200,11 @@ export function IncomingAlertOverlay({
               </div>
             </div>
 
-            {/* Title */}
             <h1 className={`text-2xl font-black uppercase tracking-wider mb-2 ${emergencyInfo.color}`}>
               {emergencyInfo.title}
             </h1>
             <p className="text-slate-400 text-sm mb-6">{emergencyInfo.subtitle}</p>
 
-            {/* Location */}
             <div className="bg-slate-800 rounded-xl p-4 mb-6">
               <div className="flex items-start gap-2 text-slate-300">
                 <MapPin className="w-4 h-4 text-red-500 mt-1 shrink-0" />
@@ -186,13 +220,11 @@ export function IncomingAlertOverlay({
               )}
             </div>
 
-            {/* Time */}
             <div className="flex items-center justify-center gap-2 text-slate-500 text-sm mb-8">
               <Clock className="w-4 h-4" />
               <span>Reported {new Date(alert.created_at).toLocaleTimeString()}</span>
             </div>
 
-            {/* Action buttons */}
             <div className="space-y-3">
               <button
                 ref={acceptButtonRef}
@@ -212,7 +244,6 @@ export function IncomingAlertOverlay({
             </div>
           </div>
 
-          {/* Warning for timeout */}
           {isUrgent && (
             <div className="bg-red-900/50 text-red-200 text-center py-2 text-xs font-bold">
               ALERT WILL ESCALATE TO NEXT RESPONDER IN {timeLeft} SECONDS

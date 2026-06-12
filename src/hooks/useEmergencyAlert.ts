@@ -1,30 +1,48 @@
 import { useRef, useCallback, useEffect } from 'react';
 
 interface EmergencyAlertOptions {
-  duration?: number; // in milliseconds, default 2 minutes
+  duration?: number;
   onVibrate?: boolean;
   onSound?: boolean;
 }
 
+let sharedAudioContext: AudioContext | null = null;
+
+export function getSharedAudioContext(): AudioContext | null {
+  return sharedAudioContext;
+}
+
+export function initAudioContext(): AudioContext {
+  if (!sharedAudioContext || sharedAudioContext.state === 'closed') {
+    sharedAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+  }
+  if (sharedAudioContext.state === 'suspended') {
+    sharedAudioContext.resume();
+  }
+  return sharedAudioContext;
+}
+
 export function useEmergencyAlert() {
-  const audioContextRef = useRef<AudioContext | null>(null);
   const oscillatorsRef = useRef<OscillatorNode[]>([]);
   const gainNodesRef = useRef<GainNode[]>([]);
   const vibrationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const soundIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isPlayingRef = useRef(false);
+  const audioBufferRef = useRef<AudioBuffer | null>(null);
 
-  // Create a loud emergency siren sound
   const playSiren = useCallback(() => {
-    if (!audioContextRef.current) {
-      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    if (!sharedAudioContext) {
+      sharedAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
     }
 
-    const ctx = audioContextRef.current;
+    if (sharedAudioContext.state === 'suspended') {
+      sharedAudioContext.resume();
+    }
+
+    const ctx = sharedAudioContext;
     const now = ctx.currentTime;
 
-    // Create multiple oscillators for a richer, louder sound
     const frequencies = [800, 1000, 1200, 600];
     const types: OscillatorType[] = ['sine', 'square', 'sawtooth', 'triangle'];
 
@@ -34,13 +52,9 @@ export function useEmergencyAlert() {
 
       osc.type = types[index];
       osc.frequency.setValueAtTime(freq, now);
-
-      // Create a sweeping siren effect
-      osc.frequency.setValueAtTime(freq, now);
       osc.frequency.linearRampToValueAtTime(freq * 1.5, now + 0.5);
       osc.frequency.linearRampToValueAtTime(freq, now + 1);
 
-      // Volume envelope
       gain.gain.setValueAtTime(0, now);
       gain.gain.linearRampToValueAtTime(0.3, now + 0.05);
       gain.gain.setValueAtTime(0.3, now + 0.9);
@@ -56,7 +70,6 @@ export function useEmergencyAlert() {
       gainNodesRef.current.push(gain);
     });
 
-    // Add a high-pitched chirp for urgency
     const chirpOsc = ctx.createOscillator();
     const chirpGain = ctx.createGain();
     chirpOsc.type = 'sine';
@@ -71,73 +84,64 @@ export function useEmergencyAlert() {
     chirpOsc.stop(now + 0.2);
   }, []);
 
-  // Vibrate device (mobile only)
   const vibrate = useCallback(() => {
     if ('vibrate' in navigator) {
-      // SOS pattern: 3 short, 3 long, 3 short
       navigator.vibrate([
-        200, 100, 200, 100, 200, // 3 short
-        400, 200, 400, 200, 400, // 3 long
-        200, 100, 200, 100, 200  // 3 short
+        200, 100, 200, 100, 200,
+        400, 200, 400, 200, 400,
+        200, 100, 200, 100, 200
       ]);
     }
   }, []);
 
-  // Start continuous vibration pattern
   const startVibration = useCallback(() => {
     vibrate();
-    // Repeat vibration pattern every 2.5 seconds
     vibrationIntervalRef.current = setInterval(() => {
       vibrate();
     }, 2500);
   }, [vibrate]);
 
-  // Start the emergency alert (sound + vibration)
   const startAlert = useCallback((options: EmergencyAlertOptions = {}) => {
     const { duration = 120000, onVibrate = true, onSound = true } = options;
 
     if (isPlayingRef.current) return;
     isPlayingRef.current = true;
 
-    // Resume audio context if suspended (required by browsers)
-    if (audioContextRef.current?.state === 'suspended') {
-      audioContextRef.current.resume();
+    if (!sharedAudioContext) {
+      sharedAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
     }
 
-    // Start sound
+    if (sharedAudioContext.state === 'suspended') {
+      sharedAudioContext.resume();
+    }
+
     if (onSound) {
       playSiren();
-      // Repeat siren every 1 second
       soundIntervalRef.current = setInterval(() => {
         playSiren();
       }, 1000);
     }
 
-    // Start vibration
     if (onVibrate) {
       startVibration();
     }
 
-    // Auto-stop after duration
     timeoutRef.current = setTimeout(() => {
       stopAlert();
     }, duration);
-
   }, [playSiren, startVibration]);
 
-  // Stop the emergency alert
   const stopAlert = useCallback(() => {
     isPlayingRef.current = false;
 
-    // Stop all oscillators
     oscillatorsRef.current.forEach(osc => {
       try {
         osc.stop();
       } catch {}
     });
     oscillatorsRef.current = [];
+    gainNodesRef.current = [];
 
-    // Clear intervals
     if (soundIntervalRef.current) {
       clearInterval(soundIntervalRef.current);
       soundIntervalRef.current = null;
@@ -148,31 +152,22 @@ export function useEmergencyAlert() {
       vibrationIntervalRef.current = null;
     }
 
-    // Clear timeout
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
     }
 
-    // Stop vibration
     if ('vibrate' in navigator) {
       navigator.vibrate(0);
     }
-
-    // Close audio context
-    if (audioContextRef.current) {
-      audioContextRef.current.close().catch(() => {});
-      audioContextRef.current = null;
-    }
   }, []);
 
-  // Test the alert (for user to verify sound/vibration works)
   const testAlert = useCallback(() => {
+    initAudioContext();
     playSiren();
     vibrate();
   }, [playSiren, vibrate]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       stopAlert();
