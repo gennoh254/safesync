@@ -2,7 +2,7 @@ import { User, Flame, HeartPulse, Save, Loader, Volume2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { supabase } from '../lib/supabase';
-import { useEmergencyAlert, initAudioContext } from '../hooks/useEmergencyAlert';
+import { useEmergencyAlert } from '../hooks/useEmergencyAlert';
 
 interface ProfileData {
   name: string;
@@ -23,7 +23,6 @@ export function ReceiverSettings() {
   const [loading, setLoading] = useState(true);
 
   const handleTestAlertSound = () => {
-    initAudioContext();
     testAlert();
   };
 

@@ -6,82 +6,35 @@ interface EmergencyAlertOptions {
   onSound?: boolean;
 }
 
-let sharedAudioContext: AudioContext | null = null;
-
-export function getSharedAudioContext(): AudioContext | null {
-  return sharedAudioContext;
-}
-
-export function initAudioContext(): AudioContext {
-  if (!sharedAudioContext || sharedAudioContext.state === 'closed') {
-    sharedAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-  }
-  if (sharedAudioContext.state === 'suspended') {
-    sharedAudioContext.resume();
-  }
-  return sharedAudioContext;
-}
-
 export function useEmergencyAlert() {
-  const oscillatorsRef = useRef<OscillatorNode[]>([]);
-  const gainNodesRef = useRef<GainNode[]>([]);
+  const audioElementRef = useRef<HTMLAudioElement | null>(null);
   const vibrationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const soundIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isPlayingRef = useRef(false);
-  const audioBufferRef = useRef<AudioBuffer | null>(null);
 
-  const playSiren = useCallback(() => {
-    if (!sharedAudioContext) {
-      sharedAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+  const createAlertSound = useCallback(() => {
+    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const sampleRate = audioCtx.sampleRate;
+    const duration = 1.0;
+    const buffer = audioCtx.createBuffer(1, sampleRate * duration, sampleRate);
+    const data = buffer.getChannelData(0);
+
+    for (let i = 0; i < buffer.length; i++) {
+      const t = i / sampleRate;
+      const freq1 = 800 + 400 * Math.sin(t * Math.PI * 2);
+      const freq2 = 1200 + 300 * Math.sin(t * Math.PI * 4);
+      data[i] = 0.3 * Math.sin(2 * Math.PI * freq1 * t) + 0.2 * Math.sin(2 * Math.PI * freq2 * t);
+      data[i] += 0.1 * Math.sin(2 * Math.PI * 1500 * t) * Math.exp(-t * 5);
+      data[i] *= 0.5;
     }
 
-    if (sharedAudioContext.state === 'suspended') {
-      sharedAudioContext.resume();
-    }
+    const wavData = audioCtx.createWavBuffer ?
+      buffer : encodeWAV(buffer);
 
-    const ctx = sharedAudioContext;
-    const now = ctx.currentTime;
-
-    const frequencies = [800, 1000, 1200, 600];
-    const types: OscillatorType[] = ['sine', 'square', 'sawtooth', 'triangle'];
-
-    frequencies.forEach((freq, index) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-
-      osc.type = types[index];
-      osc.frequency.setValueAtTime(freq, now);
-      osc.frequency.linearRampToValueAtTime(freq * 1.5, now + 0.5);
-      osc.frequency.linearRampToValueAtTime(freq, now + 1);
-
-      gain.gain.setValueAtTime(0, now);
-      gain.gain.linearRampToValueAtTime(0.3, now + 0.05);
-      gain.gain.setValueAtTime(0.3, now + 0.9);
-      gain.gain.linearRampToValueAtTime(0, now + 1);
-
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-
-      osc.start(now);
-      osc.stop(now + 1);
-
-      oscillatorsRef.current.push(osc);
-      gainNodesRef.current.push(gain);
-    });
-
-    const chirpOsc = ctx.createOscillator();
-    const chirpGain = ctx.createGain();
-    chirpOsc.type = 'sine';
-    chirpOsc.frequency.setValueAtTime(1500, now);
-    chirpOsc.frequency.linearRampToValueAtTime(2000, now + 0.1);
-    chirpOsc.frequency.linearRampToValueAtTime(1500, now + 0.2);
-    chirpGain.gain.setValueAtTime(0.25, now);
-    chirpGain.gain.linearRampToValueAtTime(0, now + 0.2);
-    chirpOsc.connect(chirpGain);
-    chirpGain.connect(ctx.destination);
-    chirpOsc.start(now);
-    chirpOsc.stop(now + 0.2);
+    const blob = new Blob([wavData], { type: 'audio/wav' });
+    const url = URL.createObjectURL(blob);
+    audioCtx.close();
+    return url;
   }, []);
 
   const vibrate = useCallback(() => {
@@ -107,19 +60,24 @@ export function useEmergencyAlert() {
     if (isPlayingRef.current) return;
     isPlayingRef.current = true;
 
-    if (!sharedAudioContext) {
-      sharedAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-    }
-
-    if (sharedAudioContext.state === 'suspended') {
-      sharedAudioContext.resume();
-    }
-
     if (onSound) {
-      playSiren();
-      soundIntervalRef.current = setInterval(() => {
-        playSiren();
-      }, 1000);
+      try {
+        if (!audioElementRef.current) {
+          const audioUrl = createAlertSound();
+          audioElementRef.current = new Audio(audioUrl);
+          audioElementRef.current.loop = true;
+          audioElementRef.current.volume = 1.0;
+        }
+
+        const playPromise = audioElementRef.current.play();
+        if (playPromise !== undefined) {
+          playPromise.catch((error) => {
+            console.log('Audio autoplay blocked:', error);
+          });
+        }
+      } catch (error) {
+        console.log('Error creating audio:', error);
+      }
     }
 
     if (onVibrate) {
@@ -129,22 +87,14 @@ export function useEmergencyAlert() {
     timeoutRef.current = setTimeout(() => {
       stopAlert();
     }, duration);
-  }, [playSiren, startVibration]);
+  }, [createAlertSound, startVibration]);
 
   const stopAlert = useCallback(() => {
     isPlayingRef.current = false;
 
-    oscillatorsRef.current.forEach(osc => {
-      try {
-        osc.stop();
-      } catch {}
-    });
-    oscillatorsRef.current = [];
-    gainNodesRef.current = [];
-
-    if (soundIntervalRef.current) {
-      clearInterval(soundIntervalRef.current);
-      soundIntervalRef.current = null;
+    if (audioElementRef.current) {
+      audioElementRef.current.pause();
+      audioElementRef.current.currentTime = 0;
     }
 
     if (vibrationIntervalRef.current) {
@@ -163,14 +113,32 @@ export function useEmergencyAlert() {
   }, []);
 
   const testAlert = useCallback(() => {
-    initAudioContext();
-    playSiren();
+    try {
+      if (!audioElementRef.current) {
+        const audioUrl = createAlertSound();
+        audioElementRef.current = new Audio(audioUrl);
+        audioElementRef.current.loop = false;
+        audioElementRef.current.volume = 1.0;
+      }
+
+      const playPromise = audioElementRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((error) => {
+          console.log('Test audio failed:', error);
+        });
+      }
+    } catch (error) {
+      console.log('Test alert error:', error);
+    }
     vibrate();
-  }, [playSiren, vibrate]);
+  }, [createAlertSound, vibrate]);
 
   useEffect(() => {
     return () => {
       stopAlert();
+      if (audioElementRef.current) {
+        audioElementRef.current = null;
+      }
     };
   }, [stopAlert]);
 
@@ -180,4 +148,52 @@ export function useEmergencyAlert() {
     testAlert,
     isPlaying: isPlayingRef.current
   };
+}
+
+function encodeWAV(buffer: AudioBuffer): ArrayBuffer {
+  const numChannels = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const format = 1;
+  const bitDepth = 16;
+
+  const bytesPerSample = bitDepth / 8;
+  const blockAlign = numChannels * bytesPerSample;
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = buffer.length * blockAlign;
+  const headerSize = 44;
+  const totalSize = headerSize + dataSize;
+
+  const arrayBuffer = new ArrayBuffer(totalSize);
+  const view = new DataView(arrayBuffer);
+
+  writeString(view, 0, 'RIFF');
+  view.setUint32(4, totalSize - 8, true);
+  writeString(view, 8, 'WAVE');
+  writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, format, true);
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitDepth, true);
+  writeString(view, 36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  const channelData = buffer.getChannelData(0);
+  let offset = 44;
+  for (let i = 0; i < buffer.length; i++) {
+    const sample = Math.max(-1, Math.min(1, channelData[i]));
+    const intSample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+    view.setInt16(offset, intSample, true);
+    offset += 2;
+  }
+
+  return arrayBuffer;
+}
+
+function writeString(view: DataView, offset: number, str: string) {
+  for (let i = 0; i < str.length; i++) {
+    view.setUint8(offset + i, str.charCodeAt(i));
+  }
 }

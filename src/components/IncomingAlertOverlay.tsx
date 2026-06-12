@@ -1,6 +1,6 @@
 import { Flame, HeartPulse, MapPin, Clock, Phone, X, CircleCheck as CheckCircle, Volume2, VolumeX } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { useEmergencyAlert, initAudioContext } from '../hooks/useEmergencyAlert';
+import { useEmergencyAlert } from '../hooks/useEmergencyAlert';
 
 interface IncomingAlert {
   id: string;
@@ -29,59 +29,23 @@ export function IncomingAlertOverlay({
 }: IncomingAlertOverlayProps) {
   const [timeLeft, setTimeLeft] = useState(duration);
   const [isMuted, setIsMuted] = useState(false);
-  const [audioStarted, setAudioStarted] = useState(false);
-  const [needsUserGesture, setNeedsUserGesture] = useState(false);
+  const [audioEnabled, setAudioEnabled] = useState(false);
+  const [showEnableButton, setShowEnableButton] = useState(true);
   const acceptButtonRef = useRef<HTMLButtonElement>(null);
   const { startAlert, stopAlert, testAlert } = useEmergencyAlert();
 
   useEffect(() => {
-    const tryStartAudio = async () => {
-      try {
-        const ctx = initAudioContext();
-        if (ctx.state === 'suspended') {
-          setNeedsUserGesture(true);
-        } else {
-          startAlert({
-            duration: duration * 1000,
-            onVibrate: true,
-            onSound: !isMuted
-          });
-          setAudioStarted(true);
-        }
-      } catch {
-        setNeedsUserGesture(true);
-      }
-    };
-
-    tryStartAudio();
     acceptButtonRef.current?.focus();
-
-    return () => {
-      stopAlert();
-    };
-  }, [duration]);
+  }, []);
 
   const handleEnableSound = () => {
-    const ctx = initAudioContext();
-    if (ctx.state === 'suspended') {
-      ctx.resume().then(() => {
-        setNeedsUserGesture(false);
-        startAlert({
-          duration: timeLeft * 1000,
-          onVibrate: true,
-          onSound: !isMuted
-        });
-        setAudioStarted(true);
-      });
-    } else {
-      setNeedsUserGesture(false);
-      startAlert({
-        duration: timeLeft * 1000,
-        onVibrate: true,
-        onSound: !isMuted
-      });
-      setAudioStarted(true);
-    }
+    setAudioEnabled(true);
+    setShowEnableButton(false);
+    startAlert({
+      duration: timeLeft * 1000,
+      onVibrate: true,
+      onSound: true
+    });
   };
 
   useEffect(() => {
@@ -112,10 +76,9 @@ export function IncomingAlertOverlay({
     setIsMuted(!isMuted);
     if (!isMuted) {
       stopAlert();
-      setAudioStarted(false);
-    } else if (audioStarted || !needsUserGesture) {
+      setAudioEnabled(false);
+    } else if (audioEnabled) {
       startAlert({ duration: timeLeft * 1000, onVibrate: true, onSound: true });
-      setAudioStarted(true);
     }
   };
 
@@ -164,12 +127,12 @@ export function IncomingAlertOverlay({
               <span className="font-bold text-lg">{formatTime(timeLeft)}</span>
             </div>
             <div className="flex items-center gap-2">
-              {needsUserGesture && !isMuted && (
+              {showEnableButton && !audioEnabled && (
                 <button
                   onClick={handleEnableSound}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-yellow-500 text-black text-xs font-bold hover:bg-yellow-400 transition-colors"
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-yellow-500 text-black text-xs font-bold hover:bg-yellow-400 transition-colors animate-pulse"
                 >
-                  <VolumeX className="w-4 h-4" />
+                  <Volume2 className="w-4 h-4" />
                   Enable Sound
                 </button>
               )}
@@ -178,7 +141,7 @@ export function IncomingAlertOverlay({
                 className="p-2 rounded-full hover:bg-white/20 transition-colors text-white"
                 title={isMuted ? 'Unmute alert' : 'Mute alert'}
               >
-                <Volume2 className={`w-5 h-5 ${isMuted ? 'opacity-50' : ''}`} />
+                {isMuted ? <VolumeX className="w-5 h-5 opacity-50" /> : <Volume2 className="w-5 h-5" />}
               </button>
             </div>
           </div>
