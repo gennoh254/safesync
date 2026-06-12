@@ -1,7 +1,7 @@
 import { APIProvider, Map, AdvancedMarker } from '@vis.gl/react-google-maps';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import { Navigation, Hop as Home, Loader as Loader2, CircleAlert as AlertCircle, Phone, Flame, HeartPulse, CircleAlert as AlertTriangle, User } from 'lucide-react';
+import { Navigation, Hop as Home, Loader as Loader2, CircleAlert as AlertCircle, Phone, Flame, HeartPulse, CircleAlert as AlertTriangle, User, MapPin, Locate, Maximize2 } from 'lucide-react';
 
 const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_PLATFORM_KEY || process.env.GOOGLE_MAPS_PLATFORM_KEY || '';
 
@@ -49,6 +49,9 @@ export function ResponderMap({ darkMode, acceptedAlert, onAlertResolved }: { dar
   const [locationError, setLocationError] = useState<string | null>(null);
   const [selectedAlert, setSelectedAlert] = useState<AlertLocation | null>(acceptedAlert || null);
   const [clientInfo, setClientInfo] = useState<ClientInfo | null>(null);
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(null);
+  const [mapZoom, setMapZoom] = useState(14);
+  const [isMapExpanded, setIsMapExpanded] = useState(false);
   const selectedAlertRef = useRef<AlertLocation | null>(acceptedAlert || null);
   const onAlertResolvedRef = useRef(onAlertResolved);
 
@@ -56,6 +59,30 @@ export function ResponderMap({ darkMode, acceptedAlert, onAlertResolved }: { dar
   useEffect(() => {
     onAlertResolvedRef.current = onAlertResolved;
   }, [onAlertResolved]);
+
+  // Recenter on responder location
+  const handleRecenterSelf = useCallback(() => {
+    if (responderLocation) {
+      setMapCenter(responderLocation);
+      setMapZoom(15);
+    }
+  }, [responderLocation]);
+
+  // Recenter to show both responder and selected alert
+  const handleRecenterBoth = useCallback(() => {
+    if (responderLocation && selectedAlert?.latitude && selectedAlert?.longitude) {
+      const lat = (responderLocation.lat + selectedAlert.latitude) / 2;
+      const lng = (responderLocation.lng + selectedAlert.longitude) / 2;
+      setMapCenter({ lat, lng });
+
+      const dist = haversineDistance(responderLocation.lat, responderLocation.lng, selectedAlert.latitude, selectedAlert.longitude);
+      if (dist > 5) setMapZoom(10);
+      else if (dist > 2) setMapZoom(12);
+      else setMapZoom(14);
+    } else {
+      handleRecenterSelf();
+    }
+  }, [responderLocation, selectedAlert, handleRecenterSelf]);
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -269,18 +296,22 @@ export function ResponderMap({ darkMode, acceptedAlert, onAlertResolved }: { dar
       )}
 
       {/* Map */}
-      <div className="h-64 lg:h-[500px] relative overflow-hidden rounded-lg border border-gray-200">
+      <div className={`${isMapExpanded ? 'h-[500px]' : 'h-64 lg:h-[450px]'} relative overflow-hidden rounded-lg border border-gray-200 transition-all duration-300`}>
         <APIProvider apiKey={API_KEY} version="weekly">
           <Map
-            defaultCenter={selectedAlert?.latitude && selectedAlert?.longitude
+            center={mapCenter || (selectedAlert?.latitude && selectedAlert?.longitude
               ? { lat: selectedAlert.latitude, lng: selectedAlert.longitude }
-              : responderLocation}
-            defaultZoom={14}
+              : responderLocation)}
+            zoom={mapZoom}
             mapId="RESPONDER_MAP_ID"
             internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
             style={{ width: '100%', height: '100%' }}
             gestureHandling="greedy"
             disableDefaultUI={false}
+            zoomControl={true}
+            streetViewControl={false}
+            mapTypeControl={false}
+            fullscreenControl={true}
           >
             {/* Responder marker (self) */}
             <AdvancedMarker position={responderLocation}>
@@ -340,6 +371,31 @@ export function ResponderMap({ darkMode, acceptedAlert, onAlertResolved }: { dar
             {alerts.length} ACTIVE ALERT{alerts.length !== 1 ? 'S' : ''}
           </div>
         )}
+
+        {/* Map controls - recenter buttons */}
+        <div className="absolute bottom-2 right-2 flex flex-col gap-2">
+          <button
+            onClick={handleRecenterBoth}
+            className="w-9 h-9 bg-white hover:bg-gray-50 rounded-lg shadow-md flex items-center justify-center transition-colors"
+            title="Recenter map"
+          >
+            <Locate className="w-5 h-5 text-gray-700" />
+          </button>
+          <button
+            onClick={handleRecenterSelf}
+            className="w-9 h-9 bg-white hover:bg-gray-50 rounded-lg shadow-md flex items-center justify-center transition-colors"
+            title="My location"
+          >
+            <MapPin className="w-5 h-5 text-blue-600" />
+          </button>
+          <button
+            onClick={() => setIsMapExpanded(!isMapExpanded)}
+            className="w-9 h-9 bg-white hover:bg-gray-50 rounded-lg shadow-md flex items-center justify-center transition-colors lg:hidden"
+            title="Toggle map size"
+          >
+            <Maximize2 className="w-5 h-5 text-gray-700" />
+          </button>
+        </div>
       </div>
 
       {/* Selected alert detail / Info panel */}

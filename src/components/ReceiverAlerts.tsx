@@ -1,4 +1,4 @@
-import { MapPin, Clock, TriangleAlert as AlertTriangle, Flame, HeartPulse, Info, Loader as Loader2, Volume2, Volume1, Zap } from 'lucide-react';
+import { MapPin, Clock, TriangleAlert as AlertTriangle, Flame, HeartPulse, Info, Loader as Loader2, Volume2, Volume1, Zap, CircleCheck as CheckCircle, X, Navigation, History } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 
@@ -11,6 +11,8 @@ interface Alert {
   client_id: string;
   latitude: number | null;
   longitude: number | null;
+  accepted_at?: string | null;
+  resolved_at?: string | null;
 }
 
 interface AcceptedAlertData {
@@ -24,73 +26,81 @@ interface AcceptedAlertData {
 
 export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: AcceptedAlertData) => void }) {
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [myAlerts, setMyAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [activeTab, setActiveTab] = useState<'active' | 'history'>('active');
   const audioRef = useRef<HTMLAudioElement>(null);
   const previousAlertsRef = useRef<Set<string>>(new Set());
 
   const playAlertSound = () => {
-    if (!soundEnabled || !audioRef.current) return;
+    if (!soundEnabled) return;
 
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const now = audioContext.currentTime;
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const now = audioContext.currentTime;
 
-    // Create oscillator for alert sound (siren-like)
-    const osc1 = audioContext.createOscillator();
-    const osc2 = audioContext.createOscillator();
-    const gain = audioContext.createGain();
+      // Create oscillator for alert sound (siren-like)
+      const osc1 = audioContext.createOscillator();
+      const osc2 = audioContext.createOscillator();
+      const gain = audioContext.createGain();
 
-    osc1.type = 'sine';
-    osc2.type = 'square';
-    osc1.frequency.setValueAtTime(800, now);
-    osc2.frequency.setValueAtTime(1200, now);
+      osc1.type = 'sine';
+      osc2.type = 'square';
+      osc1.frequency.setValueAtTime(800, now);
+      osc2.frequency.setValueAtTime(1200, now);
 
-    // Create frequency sweep effect
-    osc1.frequency.exponentialRampToValueAtTime(600, now + 0.3);
-    osc2.frequency.exponentialRampToValueAtTime(900, now + 0.3);
+      // Create frequency sweep effect
+      osc1.frequency.exponentialRampToValueAtTime(600, now + 0.3);
+      osc2.frequency.exponentialRampToValueAtTime(900, now + 0.3);
 
-    gain.gain.setValueAtTime(0.3, now);
-    gain.gain.exponentialRampToValueAtTime(0.1, now + 0.3);
+      gain.gain.setValueAtTime(0.3, now);
+      gain.gain.exponentialRampToValueAtTime(0.1, now + 0.3);
 
-    osc1.connect(gain);
-    osc2.connect(gain);
-    gain.connect(audioContext.destination);
+      osc1.connect(gain);
+      osc2.connect(gain);
+      gain.connect(audioContext.destination);
 
-    osc1.start(now);
-    osc2.start(now);
-    osc1.stop(now + 0.3);
-    osc2.stop(now + 0.3);
+      osc1.start(now);
+      osc2.start(now);
+      osc1.stop(now + 0.3);
+      osc2.stop(now + 0.3);
 
-    // Play second burst
-    setTimeout(() => {
-      const osc3 = audioContext.createOscillator();
-      const osc4 = audioContext.createOscillator();
-      const gain2 = audioContext.createGain();
+      // Play second burst
+      setTimeout(() => {
+        const osc3 = audioContext.createOscillator();
+        const osc4 = audioContext.createOscillator();
+        const gain2 = audioContext.createGain();
 
-      osc3.type = 'sine';
-      osc4.type = 'square';
-      osc3.frequency.setValueAtTime(900, audioContext.currentTime);
-      osc4.frequency.setValueAtTime(1200, audioContext.currentTime);
-      osc3.frequency.exponentialRampToValueAtTime(700, audioContext.currentTime + 0.3);
-      osc4.frequency.exponentialRampToValueAtTime(1000, audioContext.currentTime + 0.3);
+        osc3.type = 'sine';
+        osc4.type = 'square';
+        osc3.frequency.setValueAtTime(900, audioContext.currentTime);
+        osc4.frequency.setValueAtTime(1200, audioContext.currentTime);
+        osc3.frequency.exponentialRampToValueAtTime(700, audioContext.currentTime + 0.3);
+        osc4.frequency.exponentialRampToValueAtTime(1000, audioContext.currentTime + 0.3);
 
-      gain2.gain.setValueAtTime(0.3, audioContext.currentTime);
-      gain2.gain.exponentialRampToValueAtTime(0.1, audioContext.currentTime + 0.3);
+        gain2.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gain2.gain.exponentialRampToValueAtTime(0.1, audioContext.currentTime + 0.3);
 
-      osc3.connect(gain2);
-      osc4.connect(gain2);
-      gain2.connect(audioContext.destination);
+        osc3.connect(gain2);
+        osc4.connect(gain2);
+        gain2.connect(audioContext.destination);
 
-      osc3.start(audioContext.currentTime);
-      osc4.start(audioContext.currentTime);
-      osc3.stop(audioContext.currentTime + 0.3);
-      osc4.stop(audioContext.currentTime + 0.3);
-    }, 350);
+        osc3.start(audioContext.currentTime);
+        osc4.start(audioContext.currentTime);
+        osc3.stop(audioContext.currentTime + 0.3);
+        osc4.stop(audioContext.currentTime + 0.3);
+      }, 350);
+    } catch (e) {
+      console.warn('Failed to play alert sound:', e);
+    }
   };
 
   useEffect(() => {
     fetchAlerts(true);
+    fetchMyAlerts();
 
     const subscription = supabase
       .channel('receiver-alerts-channel')
@@ -102,6 +112,7 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
             playAlertSound();
           }
           fetchAlerts(false);
+          fetchMyAlerts();
         }
       )
       .subscribe();
@@ -127,6 +138,28 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
       setError(err.message ?? 'Failed to fetch alerts');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchMyAlerts = async () => {
+    try {
+      setHistoryLoading(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error: err } = await supabase
+        .from('alerts')
+        .select('*')
+        .eq('current_responder_id', user.id)
+        .in('status', ['ACCEPTED', 'RESOLVED', 'UNRESOLVED'])
+        .order('created_at', { ascending: false });
+
+      if (err) throw err;
+      setMyAlerts(data || []);
+    } catch (err: any) {
+      console.error('Failed to fetch my alerts:', err);
+    } finally {
+      setHistoryLoading(false);
     }
   };
 
@@ -168,9 +201,16 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
   };
 
   const getIcon = (emergencyType: string) => {
-    if (emergencyType === 'FIRE') return <Flame className="w-5 h-5 text-red-500" />;
+    if (emergencyType === 'FIRE') return <Flame className="w-5 h-5 text-orange-500" />;
     if (emergencyType === 'MEDICAL') return <HeartPulse className="w-5 h-5 text-red-500" />;
     return <AlertTriangle className="w-5 h-5 text-yellow-500" />;
+  };
+
+  const getStatusConfig = (status: string) => {
+    if (status === 'ACCEPTED') return { label: 'In Progress', color: 'bg-blue-100 text-blue-700', icon: <Navigation className="w-4 h-4" /> };
+    if (status === 'RESOLVED') return { label: 'Resolved', color: 'bg-green-100 text-green-700', icon: <CheckCircle className="w-4 h-4" /> };
+    if (status === 'UNRESOLVED') return { label: 'Unresolved', color: 'bg-red-100 text-red-700', icon: <X className="w-4 h-4" /> };
+    return { label: status, color: 'bg-gray-100 text-gray-700', icon: null };
   };
 
   const formatTime = (createdAt: string) => {
@@ -178,7 +218,23 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
     return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
   };
 
-  if (loading) {
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  const formatDateTime = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  if (loading && activeTab === 'active') {
     return (
       <div className="p-4 lg:p-8 bg-slate-50 min-h-screen flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
@@ -189,87 +245,219 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
     );
   }
 
+  const activeCount = alerts.length;
+  const historyCount = myAlerts.length;
+
   return (
-    <div className="p-4 lg:p-8 bg-slate-50 min-h-screen">
-      <div className="flex justify-between items-center mb-8">
-        <h2 className="text-3xl font-bold text-slate-900">Active Alerts ({alerts.length})</h2>
-        <button
-          onClick={() => setSoundEnabled(!soundEnabled)}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all ${
-            soundEnabled
-              ? 'bg-blue-600 text-white hover:bg-blue-700'
-              : 'bg-gray-300 text-gray-700 hover:bg-gray-400'
-          }`}
-        >
-          {soundEnabled ? (
-            <>
-              <Volume2 className="w-4 h-4" />
-              Sound On
-            </>
-          ) : (
-            <>
-              <Volume1 className="w-4 h-4 line-through" />
-              Sound Off
-            </>
-          )}
-        </button>
+    <div className="flex flex-col h-full bg-slate-50">
+      {/* Header - Fixed */}
+      <div className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 p-4 lg:px-8 lg:pt-6">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-2xl font-bold text-slate-900">
+            {activeTab === 'active' ? `Active Alerts (${activeCount})` : `My Responses (${historyCount})`}
+          </h2>
+          <button
+            onClick={() => setSoundEnabled(!soundEnabled)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all ${
+              soundEnabled
+                ? 'bg-blue-600 text-white hover:bg-blue-700'
+                : 'bg-gray-300 text-gray-700 hover:bg-gray-400'
+            }`}
+          >
+            {soundEnabled ? (
+              <>
+                <Volume2 className="w-4 h-4" />
+                Sound On
+              </>
+            ) : (
+              <>
+                <Volume1 className="w-4 h-4 line-through" />
+                Sound Off
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Tab Switcher */}
+        <div className="flex gap-2">
+          <button
+            onClick={() => setActiveTab('active')}
+            className={`flex-1 py-3 px-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 ${
+              activeTab === 'active'
+                ? 'bg-blue-600 text-white shadow-lg'
+                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            <Zap className="w-4 h-4" />
+            Active ({activeCount})
+          </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`flex-1 py-3 px-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 ${
+              activeTab === 'history'
+                ? 'bg-blue-600 text-white shadow-lg'
+                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            <History className="w-4 h-4" />
+            My Responses ({historyCount})
+          </button>
+        </div>
       </div>
 
+      {/* Error message */}
       {error && (
-        <div className="mb-6 bg-red-50 border border-red-200 text-red-700 text-sm rounded p-4">
+        <div className="mx-4 lg:mx-8 mt-4 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg p-4">
           {error}
         </div>
       )}
 
-      {alerts.length === 0 ? (
-        <div className="bg-white p-12 rounded-2xl border border-slate-100 text-center">
-          <AlertTriangle className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-          <p className="text-slate-500 font-medium">No active alerts at this time</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {alerts.map(alert => {
-            const priority = getPriority(alert.emergency_type);
-            return (
-              <div key={alert.id} className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
-                <div className="flex justify-between items-start mb-4">
-                  <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${priority.color}`}>
-                    {priority.label}
-                  </span>
-                  <div className="flex items-center text-slate-400 text-xs font-bold gap-1">
-                    <Clock className="w-3 h-3" />
-                    <span>{formatTime(alert.created_at)}</span>
+      {/* Scrollable Content */}
+      <div className="flex-grow overflow-y-auto p-4 lg:px-8 lg:py-6">
+        {activeTab === 'active' ? (
+          // Active Alerts Tab
+          alerts.length === 0 ? (
+            <div className="bg-white p-12 rounded-2xl border border-slate-100 text-center">
+              <AlertTriangle className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+              <p className="text-slate-500 font-medium">No active alerts at this time</p>
+              <p className="text-slate-400 text-sm mt-2">New alerts will appear here in real-time</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {alerts.map(alert => {
+                const priority = getPriority(alert.emergency_type);
+                return (
+                  <div key={alert.id} className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
+                    <div className="flex justify-between items-start mb-4">
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${priority.color}`}>
+                        {priority.label}
+                      </span>
+                      <div className="flex items-center text-slate-400 text-xs font-bold gap-1">
+                        <Clock className="w-3 h-3" />
+                        <span>{formatTime(alert.created_at)}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 mb-4">
+                      {getIcon(alert.emergency_type)}
+                      <h3 className="font-bold text-lg text-slate-900 tracking-tight">
+                        {alert.emergency_type === 'FIRE' ? 'Building Fire' : alert.emergency_type === 'MEDICAL' ? 'Medical Emergency' : 'Emergency'}
+                      </h3>
+                    </div>
+
+                    <p className="text-sm text-slate-600 mb-6 flex items-start gap-1">
+                      <MapPin className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
+                      <span>{alert.location || 'Location not available'}</span>
+                    </p>
+
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleAcceptAlert(alert)}
+                        className="flex-grow bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-colors"
+                      >
+                        ACCEPT
+                      </button>
+                      <button className="px-4 border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-500">
+                        <Info className="w-5 h-5" />
+                      </button>
+                    </div>
                   </div>
-                </div>
+                );
+              })}
+            </div>
+          )
+        ) : (
+          // History Tab
+          historyLoading ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
+            </div>
+          ) : myAlerts.length === 0 ? (
+            <div className="bg-white p-12 rounded-2xl border border-slate-100 text-center">
+              <History className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+              <p className="text-slate-500 font-medium">No response history yet</p>
+              <p className="text-slate-400 text-sm mt-2">Alerts you accept will appear here</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {myAlerts.map(alert => {
+                const statusConfig = getStatusConfig(alert.status);
+                const isActive = alert.status === 'ACCEPTED';
 
-                <div className="flex items-center gap-3 mb-4">
-                  {getIcon(alert.emergency_type)}
-                  <h3 className="font-bold text-lg text-slate-900 tracking-tight">
-                    {alert.emergency_type === 'FIRE' ? 'Building Fire' : alert.emergency_type === 'MEDICAL' ? 'Medical Emergency' : 'Emergency'}
-                  </h3>
-                </div>
-
-                <p className="text-sm text-slate-600 mb-6 flex items-start gap-1">
-                  <MapPin className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
-                  <span>{alert.location}</span>
-                </p>
-
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => handleAcceptAlert(alert)}
-                    className="flex-grow bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-colors"
+                return (
+                  <div
+                    key={alert.id}
+                    className={`bg-white p-5 rounded-xl border shadow-sm transition-all ${
+                      isActive
+                        ? 'border-blue-200 shadow-blue-100 hover:shadow-md'
+                        : 'border-slate-100 hover:shadow-md'
+                    }`}
                   >
-                    ACCEPT
-                  </button>
-                  <button className="px-4 border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-500">
-                    <Info className="w-5 h-5" />
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className={`p-2 rounded-lg ${
+                          alert.emergency_type === 'FIRE'
+                            ? 'bg-orange-100'
+                            : alert.emergency_type === 'MEDICAL'
+                            ? 'bg-red-100'
+                            : 'bg-yellow-100'
+                        }`}>
+                          {getIcon(alert.emergency_type)}
+                        </div>
+                        <div>
+                          <h3 className="font-bold text-slate-900">
+                            {alert.emergency_type === 'FIRE'
+                              ? 'Fire Emergency'
+                              : alert.emergency_type === 'MEDICAL'
+                              ? 'Medical Emergency'
+                              : 'Emergency'}
+                          </h3>
+                          <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
+                            <Clock className="w-3 h-3" />
+                            <span>{formatDateTime(alert.created_at)}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <span className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold ${statusConfig.color}`}>
+                        {statusConfig.icon}
+                        {statusConfig.label}
+                      </span>
+                    </div>
+
+                    <div className="flex items-start gap-2 text-sm text-slate-600 mb-3">
+                      <MapPin className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
+                      <span>{alert.location || 'Location not available'}</span>
+                    </div>
+
+                    {/* Timeline info */}
+                    {alert.accepted_at && (
+                      <div className="flex items-center gap-4 text-xs text-slate-500 border-t border-slate-100 pt-3 mt-3">
+                        <div className="flex items-center gap-1">
+                          <Navigation className="w-3 h-3 text-blue-500" />
+                          <span>Accepted: {formatDateTime(alert.accepted_at)}</span>
+                        </div>
+                        {alert.resolved_at && (
+                          <div className="flex items-center gap-1">
+                            <CheckCircle className="w-3 h-3 text-green-500" />
+                            <span>Resolved: {formatDateTime(alert.resolved_at)}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Active alert action */}
+                    {isActive && (
+                      <div className="mt-4 pt-3 border-t border-slate-100">
+                        <p className="text-xs text-blue-600 font-bold">This alert is currently active. Check the Map tab for navigation.</p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )
+        )}
+      </div>
     </div>
   );
 }

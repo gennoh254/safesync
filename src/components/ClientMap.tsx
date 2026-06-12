@@ -1,7 +1,7 @@
 import { APIProvider, Map, AdvancedMarker, Polyline } from '@vis.gl/react-google-maps';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import { Navigation, Hop as Home, Loader as Loader2, CircleAlert as AlertCircle, Users, CircleCheck as CheckCircle, X, ChevronDown, ChevronUp, Phone } from 'lucide-react';
+import { Navigation, Hop as Home, Loader as Loader2, CircleAlert as AlertCircle, Users, CircleCheck as CheckCircle, X, ChevronDown, ChevronUp, Phone, MapPin, Locate, Maximize2 } from 'lucide-react';
 
 const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_PLATFORM_KEY || process.env.GOOGLE_MAPS_PLATFORM_KEY || '';
 
@@ -44,7 +44,32 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
   const [showResponderList, setShowResponderList] = useState(false);
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
+  const [isMapExpanded, setIsMapExpanded] = useState(false);
   const activeAlertResponderRef = useRef<ResponderLocation | null>(null);
+
+  // Recenter on client location
+  const handleRecenterClient = useCallback(() => {
+    if (clientLocation) {
+      setMapCenter(clientLocation);
+      setMapZoom(15);
+    }
+  }, [clientLocation]);
+
+  // Recenter to show both client and responder
+  const handleRecenterBoth = useCallback(() => {
+    if (clientLocation && activeAlertResponder?.latitude && activeAlertResponder?.longitude) {
+      const lat = (clientLocation.lat + activeAlertResponder.latitude) / 2;
+      const lng = (clientLocation.lng + activeAlertResponder.longitude) / 2;
+      setMapCenter({ lat, lng });
+
+      const dist = haversineDistance(clientLocation.lat, clientLocation.lng, activeAlertResponder.latitude, activeAlertResponder.longitude);
+      if (dist > 5) setMapZoom(10);
+      else if (dist > 2) setMapZoom(12);
+      else setMapZoom(14);
+    } else {
+      handleRecenterClient();
+    }
+  }, [clientLocation, activeAlertResponder, handleRecenterClient]);
 
   useEffect(() => {
     let mounted = true;
@@ -402,8 +427,8 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
         )}
       </div>
 
-      {/* Map */}
-      <div className="h-64 lg:h-[350px] relative overflow-hidden rounded-lg border border-gray-700 shrink-0">
+      {/* Map - larger for better navigation */}
+      <div className={`${isMapExpanded ? 'h-[500px]' : 'h-[300px] lg:h-[450px]'} relative overflow-hidden rounded-lg border border-gray-700 shrink-0 transition-all duration-300`}>
         <APIProvider apiKey={API_KEY} version="weekly">
           <Map
             center={mapCenter || clientLocation}
@@ -414,6 +439,9 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
             gestureHandling="greedy"
             disableDefaultUI={false}
             zoomControl={true}
+            streetViewControl={false}
+            mapTypeControl={false}
+            fullscreenControl={true}
           >
             {responderHasLocation && clientLocation && (
               <Polyline
@@ -491,6 +519,31 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
             {showResponderList ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           </button>
         )}
+
+        {/* Map controls - recenter buttons */}
+        <div className="absolute bottom-2 right-2 flex flex-col gap-2">
+          <button
+            onClick={handleRecenterBoth}
+            className="w-9 h-9 bg-white hover:bg-gray-50 rounded-lg shadow-md flex items-center justify-center transition-colors"
+            title="Recenter map"
+          >
+            <Locate className="w-5 h-5 text-gray-700" />
+          </button>
+          <button
+            onClick={handleRecenterClient}
+            className="w-9 h-9 bg-white hover:bg-gray-50 rounded-lg shadow-md flex items-center justify-center transition-colors"
+            title="My location"
+          >
+            <MapPin className="w-5 h-5 text-red-600" />
+          </button>
+          <button
+            onClick={() => setIsMapExpanded(!isMapExpanded)}
+            className="w-9 h-9 bg-white hover:bg-gray-50 rounded-lg shadow-md flex items-center justify-center transition-colors lg:hidden"
+            title="Toggle map size"
+          >
+            <Maximize2 className="w-5 h-5 text-gray-700" />
+          </button>
+        </div>
       </div>
 
       {/* Scrollable info section */}
