@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Hop as Home, Bell, Map, Settings, LogOut } from 'lucide-react';
 import { ReceiverAlerts } from './ReceiverAlerts';
 import { ReceiverHome } from './ReceiverHome';
@@ -43,7 +43,20 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
     const { theme } = useTheme();
     const darkMode = theme === 'dark';
 
-    // Check if this responder already has an active alert
+    // Use refs to avoid stale closure issues in subscriptions
+    const hasActiveAlertRef = useRef(false);
+    const incomingAlertRef = useRef<IncomingAlert | null>(null);
+
+    // Keep refs in sync with state
+    useEffect(() => {
+      hasActiveAlertRef.current = hasActiveAlert;
+    }, [hasActiveAlert]);
+
+    useEffect(() => {
+      incomingAlertRef.current = incomingAlert;
+    }, [incomingAlert]);
+
+    // Check if this responder already has an active alert on mount
     useEffect(() => {
       const checkActiveAlert = async () => {
         const { data: { user } } = await supabase.auth.getUser();
@@ -96,73 +109,73 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
     // Subscribe to alerts assigned to this responder
     useEffect(() => {
       let channel: ReturnType<typeof supabase.channel>;
+      let userId: string | undefined;
 
       const setupSubscription = async () => {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
+        userId = user.id;
 
-        // Listen for alerts assigned specifically to this responder
+        // Get current on-duty status
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('on_duty')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        const isOnDuty = profile?.on_duty ?? false;
+        console.log('[Receiver] Setting up subscription, on_duty:', isOnDuty);
+
+        // Listen for ALL alert changes - we'll filter by current_responder_id in the callback
+        // This is necessary because alerts are created first, then assigned via edge function
         channel = supabase
-          .channel('responder-alerts-channel')
+          .channel('responder-alerts-channel-v3')
           .on(
             'postgres_changes',
             {
-              event: 'INSERT',
+              event: '*',
               schema: 'public',
-              table: 'alerts',
-              filter: `current_responder_id=eq.${user.id}`
+              table: 'alerts'
             },
-            async (payload) => {
-              const newAlert = payload.new as any;
+            (payload) => {
+              const alertData = payload.new as any;
+              const oldData = payload.old as any;
 
-              // Only show if responder is on duty and doesn't already have an active alert
-              if (!hasActiveAlert && newAlert.status === 'ACTIVE') {
-                setIncomingAlert({
-                  id: newAlert.id,
-                  emergency_type: newAlert.emergency_type,
-                  location: newAlert.location,
-                  latitude: newAlert.latitude,
-                  longitude: newAlert.longitude,
-                  client_id: newAlert.client_id,
-                  created_at: newAlert.created_at,
-                  current_responder_id: newAlert.current_responder_id,
-                  notified_responder_ids: newAlert.notified_responder_ids
-                });
+              console.log('[Receiver] Alert change:', payload.eventType, 'current_responder_id:', alertData?.current_responder_id, 'my id:', userId);
+
+              // Only process if this alert is assigned to me now (but wasn't before, or it's a new assignment)
+              if (!alertData || alertData.current_responder_id !== userId) return;
+
+              // Skip if alert is not ACTIVE (already accepted, resolved, etc.)
+              if (alertData.status !== 'ACTIVE') return;
+
+              // Check if this is a new assignment (responder_id changed or new alert)
+              const isNewAssignment = payload.eventType === 'UPDATE' && oldData?.current_responder_id !== userId;
+              const isNewAlert = payload.eventType === 'INSERT';
+
+              if ((isNewAssignment || isNewAlert) && !hasActiveAlertRef.current) {
+                console.log('[Receiver] New alert assigned to me!', alertData.id);
+
+                // Check if we already have this incoming alert
+                if (!incomingAlertRef.current || incomingAlertRef.current.id !== alertData.id) {
+                  setIncomingAlert({
+                    id: alertData.id,
+                    emergency_type: alertData.emergency_type,
+                    location: alertData.location,
+                    latitude: alertData.latitude,
+                    longitude: alertData.longitude,
+                    client_id: alertData.client_id,
+                    created_at: alertData.created_at,
+                    current_responder_id: alertData.current_responder_id,
+                    notified_responder_ids: alertData.notified_responder_ids
+                  });
+                }
               }
             }
           )
-          .on(
-            'postgres_changes',
-            {
-              event: 'UPDATE',
-              schema: 'public',
-              table: 'alerts',
-              filter: `current_responder_id=eq.${user.id}`
-            },
-            async (payload) => {
-              const updatedAlert = payload.new as any;
-
-              // Incoming alert notification (ACTIVE status, assigned to me)
-              if (
-                updatedAlert.status === 'ACTIVE' &&
-                !hasActiveAlert &&
-                (!incomingAlert || incomingAlert.id !== updatedAlert.id)
-              ) {
-                setIncomingAlert({
-                  id: updatedAlert.id,
-                  emergency_type: updatedAlert.emergency_type,
-                  location: updatedAlert.location,
-                  latitude: updatedAlert.latitude,
-                  longitude: updatedAlert.longitude,
-                  client_id: updatedAlert.client_id,
-                  created_at: updatedAlert.created_at,
-                  current_responder_id: updatedAlert.current_responder_id,
-                  notified_responder_ids: updatedAlert.notified_responder_ids
-                });
-              }
-            }
-          )
-          .subscribe();
+          .subscribe((status) => {
+            console.log('[Receiver] Subscription status:', status);
+          });
       };
 
       setupSubscription();
@@ -170,7 +183,7 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
       // Poll for alerts assigned to this responder (fallback for missed real-time events)
       const pollInterval = setInterval(async () => {
         const { data: { user } } = await supabase.auth.getUser();
-        if (!user || hasActiveAlert) return;
+        if (!user || hasActiveAlertRef.current) return;
 
         const { data } = await supabase
           .from('alerts')
@@ -179,7 +192,8 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
           .eq('current_responder_id', user.id)
           .maybeSingle();
 
-        if (data && !incomingAlert) {
+        if (data && !incomingAlertRef.current) {
+          console.log('[Receiver] Poll found alert assigned to me:', data.id);
           setIncomingAlert({
             id: data.id,
             emergency_type: data.emergency_type,
@@ -198,7 +212,7 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
         if (channel) channel.unsubscribe();
         clearInterval(pollInterval);
       };
-    }, [hasActiveAlert, incomingAlert]);
+    }, []); // Empty dependency array - we use refs for values that change
 
     const handleAcceptAlert = (alert: AcceptedAlert) => {
       setAcceptedAlert(alert);

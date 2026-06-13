@@ -1,5 +1,5 @@
 import { MapPin, Clock, TriangleAlert as AlertTriangle, Flame, HeartPulse, Info, Loader as Loader2, Volume2, Volume1, Zap, CircleCheck as CheckCircle, X, Navigation, History } from 'lucide-react';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 
 interface Alert {
@@ -24,6 +24,21 @@ interface AcceptedAlertData {
   client_id: string;
 }
 
+// Audio context singleton for better browser support
+let audioContext: AudioContext | null = null;
+
+const getAudioContext = (): AudioContext | null => {
+  if (!audioContext || audioContext.state === 'closed') {
+    try {
+      audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    } catch (e) {
+      console.warn('Failed to create audio context:', e);
+      return null;
+    }
+  }
+  return audioContext;
+};
+
 export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: AcceptedAlertData) => void }) {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [myAlerts, setMyAlerts] = useState<Alert[]>([]);
@@ -32,20 +47,32 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
   const [error, setError] = useState<string | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [activeTab, setActiveTab] = useState<'active' | 'history'>('active');
-  const audioRef = useRef<HTMLAudioElement>(null);
   const previousAlertsRef = useRef<Set<string>>(new Set());
+  const soundEnabledRef = useRef(true);
 
-  const playAlertSound = () => {
-    if (!soundEnabled) return;
+  // Keep ref in sync
+  useEffect(() => {
+    soundEnabledRef.current = soundEnabled;
+  }, [soundEnabled]);
+
+  const playAlertSound = useCallback(() => {
+    if (!soundEnabledRef.current) return;
 
     try {
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const now = audioContext.currentTime;
+      const ctx = getAudioContext();
+      if (!ctx) return;
+
+      // Resume if suspended
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(e => console.warn('Failed to resume audio:', e));
+      }
+
+      const now = ctx.currentTime;
 
       // Create oscillator for alert sound (siren-like)
-      const osc1 = audioContext.createOscillator();
-      const osc2 = audioContext.createOscillator();
-      const gain = audioContext.createGain();
+      const osc1 = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      const gain = ctx.createGain();
 
       osc1.type = 'sine';
       osc2.type = 'square';
@@ -61,7 +88,7 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
 
       osc1.connect(gain);
       osc2.connect(gain);
-      gain.connect(audioContext.destination);
+      gain.connect(ctx.destination);
 
       osc1.start(now);
       osc2.start(now);
@@ -70,33 +97,37 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
 
       // Play second burst
       setTimeout(() => {
-        const osc3 = audioContext.createOscillator();
-        const osc4 = audioContext.createOscillator();
-        const gain2 = audioContext.createGain();
+        if (!soundEnabledRef.current) return;
+        const currentCtx = getAudioContext();
+        if (!currentCtx) return;
+
+        const osc3 = currentCtx.createOscillator();
+        const osc4 = currentCtx.createOscillator();
+        const gain2 = currentCtx.createGain();
 
         osc3.type = 'sine';
         osc4.type = 'square';
-        osc3.frequency.setValueAtTime(900, audioContext.currentTime);
-        osc4.frequency.setValueAtTime(1200, audioContext.currentTime);
-        osc3.frequency.exponentialRampToValueAtTime(700, audioContext.currentTime + 0.3);
-        osc4.frequency.exponentialRampToValueAtTime(1000, audioContext.currentTime + 0.3);
+        osc3.frequency.setValueAtTime(900, currentCtx.currentTime);
+        osc4.frequency.setValueAtTime(1200, currentCtx.currentTime);
+        osc3.frequency.exponentialRampToValueAtTime(700, currentCtx.currentTime + 0.3);
+        osc4.frequency.exponentialRampToValueAtTime(1000, currentCtx.currentTime + 0.3);
 
-        gain2.gain.setValueAtTime(0.3, audioContext.currentTime);
-        gain2.gain.exponentialRampToValueAtTime(0.1, audioContext.currentTime + 0.3);
+        gain2.gain.setValueAtTime(0.3, currentCtx.currentTime);
+        gain2.gain.exponentialRampToValueAtTime(0.1, currentCtx.currentTime + 0.3);
 
         osc3.connect(gain2);
         osc4.connect(gain2);
-        gain2.connect(audioContext.destination);
+        gain2.connect(currentCtx.destination);
 
-        osc3.start(audioContext.currentTime);
-        osc4.start(audioContext.currentTime);
-        osc3.stop(audioContext.currentTime + 0.3);
-        osc4.stop(audioContext.currentTime + 0.3);
+        osc3.start(currentCtx.currentTime);
+        osc4.start(currentCtx.currentTime);
+        osc3.stop(currentCtx.currentTime + 0.3);
+        osc4.stop(currentCtx.currentTime + 0.3);
       }, 350);
     } catch (e) {
       console.warn('Failed to play alert sound:', e);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchAlerts(true);
@@ -120,7 +151,7 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
     return () => {
       subscription.unsubscribe();
     };
-  }, [soundEnabled]);
+  }, [playAlertSound]);
 
   const fetchAlerts = async (showLoading = true) => {
     try {
