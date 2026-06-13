@@ -15,17 +15,21 @@ export function useEmergencyAlert() {
   const createAlertSound = useCallback(() => {
     const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
     const sampleRate = audioCtx.sampleRate;
-    const duration = 1.0;
+    // Longer duration for a more continuous phone-like ring
+    const duration = 2.0;
     const buffer = audioCtx.createBuffer(1, sampleRate * duration, sampleRate);
     const data = buffer.getChannelData(0);
 
     for (let i = 0; i < buffer.length; i++) {
       const t = i / sampleRate;
-      const freq1 = 800 + 400 * Math.sin(t * Math.PI * 2);
-      const freq2 = 1200 + 300 * Math.sin(t * Math.PI * 4);
-      data[i] = 0.3 * Math.sin(2 * Math.PI * freq1 * t) + 0.2 * Math.sin(2 * Math.PI * freq2 * t);
-      data[i] += 0.1 * Math.sin(2 * Math.PI * 1500 * t) * Math.exp(-t * 5);
-      data[i] *= 0.5;
+      // Create a loud, urgent siren-like pattern
+      const freq1 = 900 + 400 * Math.sin(t * Math.PI * 4); // Faster oscillation
+      const freq2 = 1400 + 200 * Math.sin(t * Math.PI * 6);
+      // Louder amplitude
+      data[i] = 0.4 * Math.sin(2 * Math.PI * freq1 * t) + 0.3 * Math.sin(2 * Math.PI * freq2 * t);
+      // Add urgent high-frequency component
+      data[i] += 0.15 * Math.sin(2 * Math.PI * 1800 * t) * Math.sin(t * Math.PI * 8);
+      data[i] *= 0.7; // Normalize
     }
 
     const wavData = audioCtx.createWavBuffer ?

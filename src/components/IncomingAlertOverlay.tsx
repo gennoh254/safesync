@@ -41,12 +41,30 @@ export function IncomingAlertOverlay({
   const handleEnableSound = () => {
     setAudioEnabled(true);
     setShowEnableButton(false);
+    // Start alert with continuous sound like a phone call
     startAlert({
       duration: timeLeft * 1000,
       onVibrate: true,
       onSound: true
     });
   };
+
+  // Auto-play sound attempt on mount (may be blocked by browser)
+  useEffect(() => {
+    const tryAutoPlay = async () => {
+      try {
+        // Attempt to create and play audio on first user interaction
+        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        if (audioCtx.state === 'suspended') {
+          await audioCtx.resume();
+        }
+        audioCtx.close();
+      } catch (e) {
+        console.log('Auto-play blocked, showing enable button');
+      }
+    };
+    tryAutoPlay();
+  }, []);
 
   useEffect(() => {
     if (timeLeft <= 0) {
@@ -130,19 +148,21 @@ export function IncomingAlertOverlay({
               {showEnableButton && !audioEnabled && (
                 <button
                   onClick={handleEnableSound}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-yellow-500 text-black text-xs font-bold hover:bg-yellow-400 transition-colors animate-pulse"
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-yellow-500 text-black text-sm font-bold hover:bg-yellow-400 transition-colors animate-pulse shadow-lg shadow-yellow-500/50"
                 >
-                  <Volume2 className="w-4 h-4" />
-                  Enable Sound
+                  <Volume2 className="w-5 h-5" />
+                  TAP TO ENABLE ALERT SOUND
                 </button>
               )}
-              <button
-                onClick={handleMuteToggle}
-                className="p-2 rounded-full hover:bg-white/20 transition-colors text-white"
-                title={isMuted ? 'Unmute alert' : 'Mute alert'}
-              >
-                {isMuted ? <VolumeX className="w-5 h-5 opacity-50" /> : <Volume2 className="w-5 h-5" />}
-              </button>
+              {audioEnabled && (
+                <button
+                  onClick={handleMuteToggle}
+                  className="p-2 rounded-full hover:bg-white/20 transition-colors text-white"
+                  title={isMuted ? 'Unmute alert' : 'Mute alert'}
+                >
+                  {isMuted ? <VolumeX className="w-5 h-5 opacity-50" /> : <Volume2 className="w-5 h-5" />}
+                </button>
+              )}
             </div>
           </div>
 
