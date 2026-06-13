@@ -29,6 +29,13 @@ interface IncomingAlert {
   notified_responder_ids: string[] | null;
 }
 
+// Helper to convert string/number to number (Postgres numeric returns strings)
+function toNumber(val: unknown): number | null {
+  if (val === null || val === undefined) return null;
+  const num = typeof val === 'string' ? parseFloat(val) : typeof val === 'number' ? val : null;
+  return num !== null && !isNaN(num) ? num : null;
+}
+
 interface ReceiverLayoutProps {
   onLogout: () => void;
 }
@@ -46,6 +53,7 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
     // Use refs to avoid stale closure issues in subscriptions
     const hasActiveAlertRef = useRef(false);
     const incomingAlertRef = useRef<IncomingAlert | null>(null);
+    const processedAlertsRef = useRef<Set<string>>(new Set()); // Track which alerts we've already processed
 
     // Keep refs in sync with state
     useEffect(() => {
@@ -129,48 +137,43 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
         // Listen for ALL alert changes - we'll filter by current_responder_id in the callback
         // This is necessary because alerts are created first, then assigned via edge function
         channel = supabase
-          .channel('responder-alerts-channel-v3')
+          .channel('responder-alerts-channel-v4')
           .on(
             'postgres_changes',
             {
-              event: '*',
+              event: 'UPDATE',
               schema: 'public',
               table: 'alerts'
             },
             (payload) => {
               const alertData = payload.new as any;
-              const oldData = payload.old as any;
 
-              console.log('[Receiver] Alert change:', payload.eventType, 'current_responder_id:', alertData?.current_responder_id, 'my id:', userId);
+              console.log('[Receiver] Alert UPDATE:', alertData?.id, 'current_responder_id:', alertData?.current_responder_id, 'my id:', userId);
 
-              // Only process if this alert is assigned to me now (but wasn't before, or it's a new assignment)
+              // Only process if this alert is assigned to me
               if (!alertData || alertData.current_responder_id !== userId) return;
 
-              // Skip if alert is not ACTIVE (already accepted, resolved, etc.)
+              // Skip if alert is not ACTIVE
               if (alertData.status !== 'ACTIVE') return;
 
-              // Check if this is a new assignment (responder_id changed or new alert)
-              const isNewAssignment = payload.eventType === 'UPDATE' && oldData?.current_responder_id !== userId;
-              const isNewAlert = payload.eventType === 'INSERT';
+              // Skip if we've already processed this alert or are busy
+              if (hasActiveAlertRef.current) return;
+              if (processedAlertsRef.current.has(alertData.id)) return;
 
-              if ((isNewAssignment || isNewAlert) && !hasActiveAlertRef.current) {
-                console.log('[Receiver] New alert assigned to me!', alertData.id);
+              console.log('[Receiver] New alert assigned to me!', alertData.id);
+              processedAlertsRef.current.add(alertData.id);
 
-                // Check if we already have this incoming alert
-                if (!incomingAlertRef.current || incomingAlertRef.current.id !== alertData.id) {
-                  setIncomingAlert({
-                    id: alertData.id,
-                    emergency_type: alertData.emergency_type,
-                    location: alertData.location,
-                    latitude: alertData.latitude,
-                    longitude: alertData.longitude,
-                    client_id: alertData.client_id,
-                    created_at: alertData.created_at,
-                    current_responder_id: alertData.current_responder_id,
-                    notified_responder_ids: alertData.notified_responder_ids
-                  });
-                }
-              }
+              setIncomingAlert({
+                id: alertData.id,
+                emergency_type: alertData.emergency_type,
+                location: alertData.location,
+                latitude: toNumber(alertData.latitude),
+                longitude: toNumber(alertData.longitude),
+                client_id: alertData.client_id,
+                created_at: alertData.created_at,
+                current_responder_id: alertData.current_responder_id,
+                notified_responder_ids: alertData.notified_responder_ids
+              });
             }
           )
           .subscribe((status) => {
@@ -192,21 +195,22 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
           .eq('current_responder_id', user.id)
           .maybeSingle();
 
-        if (data && !incomingAlertRef.current) {
+        if (data && !incomingAlertRef.current && !processedAlertsRef.current.has(data.id)) {
           console.log('[Receiver] Poll found alert assigned to me:', data.id);
+          processedAlertsRef.current.add(data.id);
           setIncomingAlert({
             id: data.id,
             emergency_type: data.emergency_type,
             location: data.location,
-            latitude: data.latitude,
-            longitude: data.longitude,
+            latitude: toNumber(data.latitude),
+            longitude: toNumber(data.longitude),
             client_id: data.client_id,
             created_at: data.created_at,
             current_responder_id: data.current_responder_id,
             notified_responder_ids: data.notified_responder_ids
           });
         }
-      }, 5000);
+      }, 3000); // Poll every 3 seconds
 
       return () => {
         if (channel) channel.unsubscribe();
@@ -241,6 +245,9 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
         .from('profiles')
         .update({ has_active_alert: true })
         .eq('id', user.id);
+
+      // Clear from processed set since we're handling it
+      processedAlertsRef.current.delete(incomingAlert.id);
 
       handleAcceptAlert({
         id: incomingAlert.id,
@@ -278,6 +285,8 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
 
       // Trigger escalation to next responder
       await escalateAlert(incomingAlert.id, [...currentNotified, user.id]);
+
+      // Clear the alert but keep it in processed set so we don't get re-assigned
       setIncomingAlert(null);
     };
 
@@ -299,6 +308,8 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
         .eq('id', incomingAlert.id);
 
       await escalateAlert(incomingAlert.id, [...currentNotified, user.id]);
+
+      // Clear the alert but keep it in processed set
       setIncomingAlert(null);
     };
 
@@ -311,6 +322,11 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
         .from('profiles')
         .update({ has_active_alert: false })
         .eq('id', user.id);
+
+      // Clear the processed alert when done
+      if (acceptedAlert) {
+        processedAlertsRef.current.delete(acceptedAlert.id);
+      }
 
       setAcceptedAlert(null);
       setHasActiveAlert(false);

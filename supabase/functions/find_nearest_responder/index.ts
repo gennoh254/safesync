@@ -9,8 +9,8 @@ const corsHeaders = {
 
 interface Alert {
   id: string;
-  latitude: number | null;
-  longitude: number | null;
+  latitude: string | number | null;
+  longitude: string | number | null;
   emergency_type: string;
   notified_responder_ids: string[] | null;
 }
@@ -19,9 +19,16 @@ interface Responder {
   id: string;
   name: string;
   phone: string | null;
-  latitude: number | null;
-  longitude: number | null;
+  latitude: string | number | null;
+  longitude: string | number | null;
   response_types: string[];
+}
+
+// Helper to convert string/number to number
+function toNumber(val: string | number | null): number | null {
+  if (val === null || val === undefined) return null;
+  const num = typeof val === 'string' ? parseFloat(val) : val;
+  return isNaN(num) ? null : num;
 }
 
 function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -69,8 +76,13 @@ Deno.serve(async (req: Request) => {
 
     const alertData = alert as Alert;
 
+    // Convert coordinates to numbers (Postgres numeric type returns strings)
+    const alertLat = toNumber(alertData.latitude);
+    const alertLng = toNumber(alertData.longitude);
+
     // Can't route without coordinates
-    if (!alertData.latitude || !alertData.longitude) {
+    if (alertLat === null || alertLng === null) {
+      console.log("Alert has no valid coordinates:", alertData.latitude, alertData.longitude);
       return new Response(JSON.stringify({ error: "Alert has no location coordinates" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -79,6 +91,7 @@ Deno.serve(async (req: Request) => {
 
     // Get excluded IDs from request or use the alert's notified_responder_ids
     const excludeResponderIds = excludeIds || alertData.notified_responder_ids || [];
+    console.log("Finding responder for alert:", alertId, "emergency:", alertData.emergency_type, "excluding:", excludeResponderIds);
 
     // Find available on-duty responders who:
     // 1. Are on duty
@@ -96,11 +109,14 @@ Deno.serve(async (req: Request) => {
       .not("longitude", "is", null);
 
     if (respondersError) {
+      console.error("Failed to fetch responders:", respondersError);
       return new Response(JSON.stringify({ error: "Failed to fetch responders" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    console.log("Found available responders:", responders?.length || 0);
 
     // Filter by response type and excluded IDs
     const eligibleResponders = (responders as Responder[]).filter((r) => {
@@ -115,6 +131,8 @@ Deno.serve(async (req: Request) => {
       return true;
     });
 
+    console.log("Eligible responders after filtering:", eligibleResponders.length);
+
     if (eligibleResponders.length === 0) {
       return new Response(JSON.stringify({
         success: false,
@@ -127,15 +145,20 @@ Deno.serve(async (req: Request) => {
     }
 
     // Find nearest responder
-    const alertLat = alertData.latitude;
-    const alertLng = alertData.longitude;
-
     const respondersWithDistance = eligibleResponders
-      .filter((r) => r.latitude !== null && r.longitude !== null)
-      .map((r) => ({
-        ...r,
-        distance: haversineDistance(alertLat, alertLng, r.latitude!, r.longitude!)
-      }))
+      .filter((r) => {
+        const lat = toNumber(r.latitude);
+        const lng = toNumber(r.longitude);
+        return lat !== null && lng !== null;
+      })
+      .map((r) => {
+        const lat = toNumber(r.latitude)!;
+        const lng = toNumber(r.longitude)!;
+        return {
+          ...r,
+          distance: haversineDistance(alertLat, alertLng, lat, lng)
+        };
+      })
       .sort((a, b) => a.distance - b.distance);
 
     const nearestResponder = respondersWithDistance[0];
