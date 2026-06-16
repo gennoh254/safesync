@@ -15,35 +15,41 @@ export function useEmergencyAlert() {
   const createAlertSound = useCallback(() => {
     const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
     const sampleRate = audioCtx.sampleRate;
-    // Create a longer siren sound like an ambulance/fire truck (4 seconds loop)
-    const duration = 4.0;
+    // Create a phone ring sound - classic ring tone pattern
+    // Pattern: 2 rings (0.4s each with 0.2s gap), then 2s silence, repeat
+    const duration = 3.0;
     const buffer = audioCtx.createBuffer(1, sampleRate * duration, sampleRate);
     const data = buffer.getChannelData(0);
 
     for (let i = 0; i < buffer.length; i++) {
       const t = i / sampleRate;
-
-      // Classic ambulance/fire siren: two tones alternating (wail)
-      // Phase 1: Low tone (700Hz) for 0.5s
-      // Phase 2: High tone (1500Hz) for 0.5s
-      const cyclePos = (t % 1.0); // 1 second cycle
       let sample = 0;
 
-      if (cyclePos < 0.5) {
-        // Low tone with slight ramp up
-        const ramp = cyclePos / 0.5;
-        sample = 0.6 * Math.sin(2 * Math.PI * 700 * t) * ramp;
-      } else {
-        // High tone with slight ramp up
-        const ramp = (cyclePos - 0.5) / 0.5;
-        sample = 0.6 * Math.sin(2 * Math.PI * 1500 * t) * ramp;
+      // Phone ring pattern within 3-second loop:
+      // 0.0 - 0.4s: Ring 1 (warble tone)
+      // 0.4 - 0.6s: Silence
+      // 0.6 - 1.0s: Ring 2 (warble tone)
+      // 1.0 - 3.0s: Silence
+
+      const cyclePos = t % 3.0;
+
+      if ((cyclePos >= 0 && cyclePos < 0.4) || (cyclePos >= 0.6 && cyclePos < 1.0)) {
+        // Ring tone - warble between two frequencies (classic phone ring)
+        const ringTime = cyclePos < 0.4 ? cyclePos : cyclePos - 0.6;
+        // Warble between 1200Hz and 1400Hz at 25Hz rate
+        const warble = Math.sin(2 * Math.PI * 25 * ringTime);
+        const freq = 1300 + 100 * warble;
+
+        // Add amplitude envelope for realistic ring
+        const envelope = Math.sin(Math.PI * ringTime / 0.4);
+        sample = 0.6 * Math.sin(2 * Math.PI * freq * t) * envelope;
+
+        // Add harmonics for richer ring sound
+        sample += 0.2 * Math.sin(2 * Math.PI * (freq * 2) * t) * envelope;
+        sample += 0.1 * Math.sin(2 * Math.PI * (freq * 3) * t) * envelope;
       }
 
-      // Add harmonics for richer sound
-      sample += 0.2 * Math.sin(2 * Math.PI * 1400 * t);
-      sample += 0.1 * Math.sin(2 * Math.PI * 2100 * t);
-
-      data[i] = sample * 0.8;
+      data[i] = sample;
     }
 
     const wavData = audioCtx.createWavBuffer ?

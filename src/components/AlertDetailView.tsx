@@ -52,7 +52,6 @@ export function AlertDetailView({ alertId, onBack, onViewMap }: AlertDetailViewP
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [rating, setRating] = useState(0);
   const [hoveredRating, setHoveredRating] = useState(0);
-  const [showRating, setShowRating] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -174,6 +173,7 @@ export function AlertDetailView({ alertId, onBack, onViewMap }: AlertDetailViewP
 
   const handleSubmitFeedback = async () => {
     if (!alertData || !feedback) return;
+    if (feedback === 'resolved' && rating === 0) return;
 
     try {
       const updateData: Record<string, unknown> = {
@@ -182,6 +182,7 @@ export function AlertDetailView({ alertId, onBack, onViewMap }: AlertDetailViewP
 
       if (feedback === 'resolved') {
         updateData.status = 'RESOLVED';
+        updateData.responder_rating = rating;
       } else {
         updateData.status = 'UNRESOLVED';
       }
@@ -193,27 +194,10 @@ export function AlertDetailView({ alertId, onBack, onViewMap }: AlertDetailViewP
 
       if (error) throw error;
       setFeedbackSubmitted(true);
-      setShowRating(true);
-      setAlertData(prev => prev ? { ...prev, status: feedback === 'resolved' ? 'RESOLVED' : 'UNRESOLVED', resolved_at: new Date().toISOString() } : prev);
+      setShowRating(false);
+      setAlertData(prev => prev ? { ...prev, status: feedback === 'resolved' ? 'RESOLVED' : 'UNRESOLVED', resolved_at: new Date().toISOString(), responder_rating: feedback === 'resolved' ? rating : null } : prev);
     } catch (err) {
       console.error('Failed to submit feedback:', err);
-    }
-  };
-
-  const handleSubmitRating = async () => {
-    if (!alertData || rating === 0) return;
-
-    try {
-      const { error } = await supabase
-        .from('alerts')
-        .update({ responder_rating: rating })
-        .eq('id', alertData.id);
-
-      if (error) throw error;
-      setShowRating(false);
-      setAlertData(prev => prev ? { ...prev, responder_rating: rating } : prev);
-    } catch (err) {
-      console.error('Failed to submit rating:', err);
     }
   };
 
@@ -420,8 +404,8 @@ export function AlertDetailView({ alertId, onBack, onViewMap }: AlertDetailViewP
         </button>
       )}
 
-      {/* Resolved / Unsolved Feedback - only when accepted and responder has arrived */}
-      {isAccepted && !feedbackSubmitted && !feedback && (
+      {/* Resolved / Unsolved Feedback - only when accepted */}
+      {isAccepted && !feedbackSubmitted && (
         <div className="border border-gray-200 rounded-xl p-4 mb-6">
           <h2 className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-3 flex items-center gap-2">
             <MessageSquare className="w-4 h-4" />
@@ -429,7 +413,7 @@ export function AlertDetailView({ alertId, onBack, onViewMap }: AlertDetailViewP
           </h2>
           <div className="grid grid-cols-2 gap-3 mb-4">
             <button
-              onClick={() => setFeedback('resolved')}
+              onClick={() => { setFeedback('resolved'); setRating(5); }}
               className={`py-3 rounded-xl font-bold text-sm border-2 transition-all ${
                 feedback === 'resolved'
                   ? 'bg-green-50 border-green-500 text-green-700'
@@ -458,82 +442,78 @@ export function AlertDetailView({ alertId, onBack, onViewMap }: AlertDetailViewP
                 value={feedbackNote}
                 onChange={(e) => setFeedbackNote(e.target.value)}
                 placeholder="Add a note (optional)"
-                className="w-full border border-gray-200 rounded-lg p-3 text-sm resize-none h-20 mb-3 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                className="w-full border border-gray-200 rounded-lg p-3 text-sm resize-none h-20 mb-4 focus:outline-none focus:ring-2 focus:ring-blue-300"
               />
+
+              {/* Star Rating - show when resolved is selected */}
+              {feedback === 'resolved' && (
+                <div className="mb-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+                  <p className="text-sm font-bold text-gray-700 mb-3 text-center">Rate the responder's service:</p>
+                  <div className="flex justify-center gap-2 mb-2">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        key={star}
+                        onClick={() => setRating(star)}
+                        onMouseEnter={() => setHoveredRating(star)}
+                        onMouseLeave={() => setHoveredRating(0)}
+                        className="transition-transform hover:scale-110"
+                      >
+                        <Star
+                          className={`w-10 h-10 ${
+                            star <= (hoveredRating || rating)
+                              ? 'text-yellow-400 fill-yellow-400'
+                              : 'text-gray-300'
+                          }`}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-center text-gray-500">
+                    {rating === 0 ? 'Click to rate' : `${rating} star${rating > 1 ? 's' : ''}`}
+                  </p>
+                </div>
+              )}
+
               <button
                 onClick={handleSubmitFeedback}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl font-bold transition-all text-sm"
+                disabled={feedback === 'resolved' && rating === 0}
+                className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white py-2.5 rounded-xl font-bold transition-all text-sm"
               >
-                Submit Feedback
+                {feedback === 'resolved' ? 'Submit & Rate' : 'Submit Feedback'}
               </button>
             </>
           )}
         </div>
       )}
 
-      {/* Feedback Submitted Confirmation with Rating */}
-      {feedbackSubmitted && showRating && (
+      {/* Feedback Submitted Confirmation */}
+      {feedbackSubmitted && (
         <div className="border border-green-200 bg-green-50 rounded-xl p-4 mb-6 text-center">
           <CheckCircle className="w-8 h-8 text-green-600 mx-auto mb-2" />
           <p className="font-bold text-green-700">Feedback Submitted</p>
-          <p className="text-sm text-green-600 mb-4">Thank you for your response</p>
-
-          {/* Star Rating */}
-          <div className="border-t border-green-200 pt-4 mt-4">
-            <p className="text-sm font-bold text-gray-700 mb-3">Rate the responder's service:</p>
-            <div className="flex justify-center gap-2 mb-4">
-              {[1, 2, 3, 4, 5].map((star) => (
-                <button
-                  key={star}
-                  onClick={() => setRating(star)}
-                  onMouseEnter={() => setHoveredRating(star)}
-                  onMouseLeave={() => setHoveredRating(0)}
-                  className="transition-transform hover:scale-110"
-                >
+          <p className="text-sm text-green-600">Thank you for your response</p>
+          {alertData?.responder_rating && (
+            <div className="mt-3 pt-3 border-t border-green-200">
+              <p className="text-xs text-gray-500 mb-1">Your rating:</p>
+              <div className="flex justify-center gap-1">
+                {[1, 2, 3, 4, 5].map((star) => (
                   <Star
-                    className={`w-10 h-10 ${
-                      star <= (hoveredRating || rating)
+                    key={star}
+                    className={`w-5 h-5 ${
+                      star <= alertData.responder_rating!
                         ? 'text-yellow-400 fill-yellow-400'
                         : 'text-gray-300'
                     }`}
                   />
-                </button>
-              ))}
+                ))}
+              </div>
             </div>
-            {rating > 0 && (
-              <button
-                onClick={handleSubmitRating}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-bold text-sm transition-colors"
-              >
-                Submit Rating
-              </button>
-            )}
-          </div>
+          )}
         </div>
       )}
 
-      {/* Rating Submitted Confirmation */}
-      {feedbackSubmitted && !showRating && alertData?.responder_rating && (
-        <div className="border border-yellow-200 bg-yellow-50 rounded-xl p-4 mb-6 text-center">
-          <Star className="w-8 h-8 text-yellow-400 mx-auto mb-2 fill-yellow-400" />
-          <p className="font-bold text-yellow-700">Rating Submitted</p>
-          <div className="flex justify-center gap-1 mt-2">
-            {[1, 2, 3, 4, 5].map((star) => (
-              <Star
-                key={star}
-                className={`w-5 h-5 ${
-                  star <= alertData.responder_rating!
-                    ? 'text-yellow-400 fill-yellow-400'
-                    : 'text-gray-300'
-                }`}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Already Resolved/Unresolved display */}
-      {(isResolved || isUnresolved) && (
+      {/* Already Resolved/Unresolved display with rating */}
+      {(isResolved || isUnresolved) && !feedbackSubmitted && (
         <div className={`border rounded-xl p-4 mb-6 text-center ${isResolved ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}>
           {isResolved ? (
             <CheckCircle className="w-8 h-8 text-green-600 mx-auto mb-2" />
@@ -546,6 +526,23 @@ export function AlertDetailView({ alertId, onBack, onViewMap }: AlertDetailViewP
           <p className={`text-sm ${isResolved ? 'text-green-600' : 'text-red-600'}`}>
             {formatTime(alertData.resolved_at)}
           </p>
+          {isResolved && alertData?.responder_rating && (
+            <div className="mt-3 pt-3 border-t border-green-200">
+              <p className="text-xs text-gray-500 mb-1">Client rating:</p>
+              <div className="flex justify-center gap-1">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <Star
+                    key={star}
+                    className={`w-5 h-5 ${
+                      star <= alertData.responder_rating!
+                        ? 'text-yellow-400 fill-yellow-400'
+                        : 'text-gray-300'
+                    }`}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
