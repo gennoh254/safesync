@@ -15,21 +15,35 @@ export function useEmergencyAlert() {
   const createAlertSound = useCallback(() => {
     const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
     const sampleRate = audioCtx.sampleRate;
-    // Longer duration for a more continuous phone-like ring
-    const duration = 2.0;
+    // Create a longer siren sound like an ambulance/fire truck (4 seconds loop)
+    const duration = 4.0;
     const buffer = audioCtx.createBuffer(1, sampleRate * duration, sampleRate);
     const data = buffer.getChannelData(0);
 
     for (let i = 0; i < buffer.length; i++) {
       const t = i / sampleRate;
-      // Create a loud, urgent siren-like pattern
-      const freq1 = 900 + 400 * Math.sin(t * Math.PI * 4); // Faster oscillation
-      const freq2 = 1400 + 200 * Math.sin(t * Math.PI * 6);
-      // Louder amplitude
-      data[i] = 0.4 * Math.sin(2 * Math.PI * freq1 * t) + 0.3 * Math.sin(2 * Math.PI * freq2 * t);
-      // Add urgent high-frequency component
-      data[i] += 0.15 * Math.sin(2 * Math.PI * 1800 * t) * Math.sin(t * Math.PI * 8);
-      data[i] *= 0.7; // Normalize
+
+      // Classic ambulance/fire siren: two tones alternating (wail)
+      // Phase 1: Low tone (700Hz) for 0.5s
+      // Phase 2: High tone (1500Hz) for 0.5s
+      const cyclePos = (t % 1.0); // 1 second cycle
+      let sample = 0;
+
+      if (cyclePos < 0.5) {
+        // Low tone with slight ramp up
+        const ramp = cyclePos / 0.5;
+        sample = 0.6 * Math.sin(2 * Math.PI * 700 * t) * ramp;
+      } else {
+        // High tone with slight ramp up
+        const ramp = (cyclePos - 0.5) / 0.5;
+        sample = 0.6 * Math.sin(2 * Math.PI * 1500 * t) * ramp;
+      }
+
+      // Add harmonics for richer sound
+      sample += 0.2 * Math.sin(2 * Math.PI * 1400 * t);
+      sample += 0.1 * Math.sin(2 * Math.PI * 2100 * t);
+
+      data[i] = sample * 0.8;
     }
 
     const wavData = audioCtx.createWavBuffer ?

@@ -1,0 +1,2 @@
+-- Add rating column to alerts table for responder service ratings (1-5 stars)
+ALTER TABLE alerts ADD COLUMN IF NOT EXISTS responder_rating integer CHECK (responder_rating >= 1 AND responder_rating <= 5);

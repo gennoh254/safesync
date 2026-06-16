@@ -42,6 +42,8 @@ function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: numbe
 }
 
 export function ResponderMap({ darkMode, acceptedAlert, onAlertResolved }: { darkMode: boolean; acceptedAlert?: AcceptedAlert | null; onAlertResolved?: () => void }) {
+  // When there's an active accepted alert, responder cannot dismiss it
+  const hasActiveAssignedAlert = !!acceptedAlert;
   const [responderLocation, setResponderLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [alerts, setAlerts] = useState<AlertLocation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -455,13 +457,20 @@ export function ResponderMap({ darkMode, acceptedAlert, onAlertResolved }: { dar
               </div>
             )}
 
-            {/* Action button */}
-            <button
-              onClick={() => { setSelectedAlert(null); setClientInfo(null); }}
-              className="w-full bg-gray-200 hover:bg-gray-300 rounded-xl text-gray-700 transition-colors font-bold py-3"
-            >
-              BACK
-            </button>
+            {/* Action button - only show BACK when there's no active assigned alert */}
+            {!hasActiveAssignedAlert && (
+              <button
+                onClick={() => { setSelectedAlert(null); setClientInfo(null); }}
+                className="w-full bg-gray-200 hover:bg-gray-300 rounded-xl text-gray-700 transition-colors font-bold py-3"
+              >
+                BACK
+              </button>
+            )}
+            {hasActiveAssignedAlert && (
+              <p className="text-center text-sm text-blue-600 font-bold mt-3">
+                Navigate to the emergency location. Complete resolution from the Alerts tab.
+              </p>
+            )}
           </div>
         ) : (
           <>

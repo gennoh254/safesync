@@ -1,4 +1,4 @@
-import { MapPin, Clock, TriangleAlert as AlertTriangle, Flame, HeartPulse, Info, Loader as Loader2, Volume2, Volume1, Zap, CircleCheck as CheckCircle, X, Navigation, History } from 'lucide-react';
+import { MapPin, Clock, TriangleAlert as AlertTriangle, Flame, HeartPulse, Info, Loader as Loader2, Volume2, Volume1, Zap, CircleCheck as CheckCircle, X, Navigation, History, Star } from 'lucide-react';
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 
@@ -13,6 +13,7 @@ interface Alert {
   longitude: number | null;
   accepted_at?: string | null;
   resolved_at?: string | null;
+  responder_rating?: number | null;
 }
 
 interface AcceptedAlertData {
@@ -473,6 +474,26 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
                             <span>Resolved: {formatDateTime(alert.resolved_at)}</span>
                           </div>
                         )}
+                      </div>
+                    )}
+
+                    {/* Rating display */}
+                    {alert.responder_rating && (
+                      <div className="flex items-center gap-2 text-xs border-t border-slate-100 pt-3 mt-3">
+                        <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
+                        <span className="text-slate-600 font-medium">Client Rating:</span>
+                        <div className="flex gap-0.5">
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <Star
+                              key={star}
+                              className={`w-4 h-4 ${
+                                star <= alert.responder_rating!
+                                  ? 'text-yellow-400 fill-yellow-400'
+                                  : 'text-gray-300'
+                              }`}
+                            />
+                          ))}
+                        </div>
                       </div>
                     )}
 
