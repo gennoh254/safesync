@@ -1,8 +1,9 @@
-import { User, Flame, HeartPulse, Save, Loader, Volume2, VolumeX, Bell } from 'lucide-react';
+import { User, Flame, HeartPulse, Save, Loader, Volume2, VolumeX, Bell, BellRing, BellOff, ShieldCheck } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { useEmergencyAlert, unlockAudio, isAudioUnlocked } from '../hooks/useEmergencyAlert';
+import { usePushNotifications } from '../hooks/usePushNotifications';
 
 interface ProfileData {
   name: string;
@@ -26,6 +27,7 @@ export function ReceiverSettings() {
   const { theme, toggleTheme } = useTheme();
   const darkMode = theme === 'dark';
   const { testAlert } = useEmergencyAlert();
+  const push = usePushNotifications();
 
   const [soundEnabled, setSoundEnabled] = useState<boolean>(() => getResponderSoundEnabled());
   const [audioUnlocked, setAudioUnlocked] = useState(false);
@@ -299,6 +301,69 @@ export function ReceiverSettings() {
           <button onClick={toggleTheme} className={`w-12 h-6 ${darkMode ? 'bg-blue-600' : 'bg-gray-400'} rounded-full transition-all`}>
             <div className={`w-4 h-4 bg-white rounded-full transition-all ${darkMode ? 'ml-7' : 'ml-1'}`}></div>
           </button>
+        </div>
+
+        {/* Push Notification Settings */}
+        <div className={`border rounded-xl p-6 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
+          <span className="font-bold block mb-4">Push Notifications</span>
+          {!push.isSupported && (
+            <p className="text-sm text-gray-500">Push notifications are not supported in this browser.</p>
+          )}
+          {push.isSupported && (
+            <div className="space-y-4">
+              <div className={`flex items-center gap-3 p-3 rounded-lg ${
+                push.isSubscribed
+                  ? darkMode ? 'bg-green-900/30 border border-green-700' : 'bg-green-50 border border-green-300'
+                  : darkMode ? 'bg-yellow-900/30 border border-yellow-700' : 'bg-yellow-50 border border-yellow-400'
+              }`}>
+                {push.isSubscribed
+                  ? <ShieldCheck className="w-5 h-5 text-green-600 shrink-0" />
+                  : <BellOff className="w-5 h-5 text-yellow-600 shrink-0" />
+                }
+                <div>
+                  <p className={`text-sm font-bold ${push.isSubscribed ? (darkMode ? 'text-green-400' : 'text-green-700') : (darkMode ? 'text-yellow-300' : 'text-yellow-700')}`}>
+                    {push.isSubscribed ? 'Push notifications enabled' : 'Push notifications not enabled'}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {push.isSubscribed
+                      ? 'You will receive alert calls even when the app is in the background.'
+                      : 'Enable to receive emergency alert calls in the background or when the tab is closed.'}
+                  </p>
+                </div>
+              </div>
+
+              {push.permission === 'denied' && (
+                <p className={`text-sm ${darkMode ? 'text-red-400' : 'text-red-600'}`}>
+                  Notifications are blocked. To fix: open browser Settings → Site Settings → Notifications → allow this site.
+                </p>
+              )}
+
+              {!push.isSubscribed && push.permission !== 'denied' && (
+                <button
+                  onClick={async () => {
+                    await push.subscribe();
+                    if (!audioUnlocked) await handleUnlockAudio();
+                  }}
+                  className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition-colors"
+                >
+                  <BellRing className="w-5 h-5" />
+                  Enable Emergency Alert Notifications
+                </button>
+              )}
+
+              {push.isSubscribed && (
+                <button
+                  onClick={() => push.unsubscribe()}
+                  className={`w-full py-2.5 rounded-lg text-sm font-bold border transition-colors flex items-center justify-center gap-2 ${
+                    darkMode ? 'border-gray-600 text-gray-400 hover:bg-gray-700' : 'border-gray-300 text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  <BellOff className="w-4 h-4" />
+                  Disable Push Notifications
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Alert Sound Settings */}

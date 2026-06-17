@@ -191,6 +191,26 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // Fire push notification to the assigned responder (non-blocking)
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    fetch(`${supabaseUrl}/functions/v1/send-push-notification`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({
+        responderId: nearestResponder.id,
+        alertId,
+        emergencyType: alertData.emergency_type,
+        location: alert.location,
+        latitude: alertLat,
+        longitude: alertLng,
+        clientId: alert.client_id,
+        createdAt: alert.created_at,
+      }),
+    }).catch((e) => console.error("Failed to send push notification:", e));
+
     return new Response(JSON.stringify({
       success: true,
       responder: {

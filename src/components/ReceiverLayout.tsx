@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Hop as Home, Bell, Map, Settings, LogOut, Volume2 } from 'lucide-react';
+import { Hop as Home, Bell, Map, Settings, LogOut, Volume2, BellRing } from 'lucide-react';
 import { ReceiverAlerts } from './ReceiverAlerts';
 import { ReceiverHome } from './ReceiverHome';
 import { ReceiverTrackingPage } from './ReceiverTrackingPage';
@@ -8,6 +8,7 @@ import { IncomingAlertOverlay } from './IncomingAlertOverlay';
 import { useTheme } from '../context/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { unlockAudio, isAudioUnlocked, getAudioCtx } from '../hooks/useEmergencyAlert';
+import { usePushNotifications } from '../hooks/usePushNotifications';
 
 interface AcceptedAlert {
   id: string;
@@ -53,11 +54,13 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
     const { theme } = useTheme();
     const darkMode = theme === 'dark';
     const soundEnabled = getResponderSoundEnabled();
+    const push = usePushNotifications();
 
     // Use refs to avoid stale closure issues in subscriptions
     const hasActiveAlertRef = useRef(false);
     const incomingAlertRef = useRef<IncomingAlert | null>(null);
-    const processedAlertsRef = useRef<Set<string>>(new Set()); // Track which alerts we've already processed
+    const processedAlertsRef = useRef<Set<string>>(new Set());
+    const declineHandlerRef = useRef<(() => void) | null>(null);
 
     // Keep refs in sync with state
     useEffect(() => {
@@ -73,6 +76,55 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
       const unlocked = isAudioUnlocked();
       setAudioUnlocked(unlocked);
       if (!unlocked) setShowAudioBanner(true);
+    }, []);
+
+    // Listen for messages from the service worker (push notifications hitting the SW)
+    useEffect(() => {
+      if (!('serviceWorker' in navigator)) return;
+
+      const handleSWMessage = (event: MessageEvent) => {
+        const msg = event.data;
+        if (!msg) return;
+
+        if (msg.type === 'INCOMING_ALERT') {
+          const alertData = msg as {
+            type: string;
+            alertId: string;
+            emergencyType: string;
+            location: string;
+            latitude: number | null;
+            longitude: number | null;
+            clientId: string;
+            createdAt: string;
+          };
+
+          if (hasActiveAlertRef.current) return;
+          if (processedAlertsRef.current.has(alertData.alertId)) return;
+
+          console.log('[Receiver] SW push message: INCOMING_ALERT', alertData.alertId);
+          processedAlertsRef.current.add(alertData.alertId);
+
+          setIncomingAlert({
+            id: alertData.alertId,
+            emergency_type: alertData.emergencyType,
+            location: alertData.location,
+            latitude: alertData.latitude,
+            longitude: alertData.longitude,
+            client_id: alertData.clientId,
+            created_at: alertData.createdAt,
+            current_responder_id: null,
+            notified_responder_ids: null,
+          });
+        }
+
+        if (msg.type === 'DECLINE_ALERT' && incomingAlertRef.current?.id === msg.alertId) {
+          declineHandlerRef.current?.();
+        }
+      };
+
+      navigator.serviceWorker.addEventListener('message', handleSWMessage);
+      return () => navigator.serviceWorker.removeEventListener('message', handleSWMessage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const handleUnlockAudio = async () => {
@@ -288,6 +340,8 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
       // Clear the alert but keep it in processed set so we don't get re-assigned
       setIncomingAlert(null);
     };
+    // Keep ref in sync so SW message handler can call it
+    declineHandlerRef.current = handleDeclineIncomingAlert;
 
     const handleTimeoutIncomingAlert = async () => {
       if (!incomingAlert) return;
@@ -333,27 +387,51 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
 
     return (
         <div className={`flex flex-col lg:flex-row h-screen w-full ${darkMode ? 'bg-gray-900 text-white' : 'bg-white text-black'} font-sans`}>
-            {/* Audio permission banner */}
-            {showAudioBanner && !audioUnlocked && (
-              <div className="fixed top-0 inset-x-0 z-[9998] bg-yellow-500 text-white px-4 py-3 flex items-center justify-between shadow-lg">
-                <div className="flex items-center gap-3">
-                  <Volume2 className="w-5 h-5 shrink-0" />
-                  <span className="text-sm font-bold">Enable audio to receive alert ring tones</span>
+            {/* Push + Audio permission banner */}
+            {(showAudioBanner || (push.isSupported && !push.isSubscribed && push.permission !== 'denied' && !push.loading)) && (
+              <div className="fixed top-0 inset-x-0 z-[9998] bg-red-600 text-white px-4 py-3 shadow-lg">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <BellRing className="w-5 h-5 shrink-0 animate-bounce" />
+                    <span className="text-sm font-bold truncate">
+                      {!push.isSubscribed ? 'Enable alert notifications to receive emergency calls' : 'Enable audio for in-app ring tone'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {push.isSupported && !push.isSubscribed && push.permission !== 'denied' && (
+                      <button
+                        onClick={async () => {
+                          const ok = await push.subscribe();
+                          if (ok) await handleUnlockAudio();
+                        }}
+                        className="bg-white text-red-700 font-bold text-sm px-4 py-1.5 rounded-lg hover:bg-red-50 transition-colors whitespace-nowrap"
+                      >
+                        Enable Alerts
+                      </button>
+                    )}
+                    {showAudioBanner && !audioUnlocked && (
+                      <button
+                        onClick={handleUnlockAudio}
+                        className="bg-white/20 hover:bg-white/30 font-bold text-sm px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 whitespace-nowrap"
+                      >
+                        <Volume2 className="w-4 h-4" />
+                        Audio
+                      </button>
+                    )}
+                    <button
+                      onClick={() => { setShowAudioBanner(false); }}
+                      className="text-white/70 hover:text-white text-lg px-1"
+                      aria-label="Dismiss"
+                    >
+                      ×
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={handleUnlockAudio}
-                    className="bg-white text-yellow-700 font-bold text-sm px-4 py-1.5 rounded-lg hover:bg-yellow-50 transition-colors"
-                  >
-                    Enable Audio
-                  </button>
-                  <button
-                    onClick={() => setShowAudioBanner(false)}
-                    className="text-white/70 hover:text-white text-sm px-2"
-                  >
-                    Dismiss
-                  </button>
-                </div>
+                {push.permission === 'denied' && (
+                  <p className="text-xs text-white/80 mt-1 pl-8">
+                    Notifications blocked in browser settings. Open browser settings → Notifications → Allow for this site.
+                  </p>
+                )}
               </div>
             )}
 
