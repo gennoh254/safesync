@@ -1,6 +1,7 @@
 import { MapPin, Clock, TriangleAlert as AlertTriangle, Flame, HeartPulse, Info, Loader as Loader2, Volume2, Volume1, Zap, CircleCheck as CheckCircle, X, Navigation, History, Star } from 'lucide-react';
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { getAudioCtx } from '../hooks/useEmergencyAlert';
 
 interface Alert {
   id: string;
@@ -25,21 +26,6 @@ interface AcceptedAlertData {
   client_id: string;
 }
 
-// Audio context singleton for better browser support
-let audioContext: AudioContext | null = null;
-
-const getAudioContext = (): AudioContext | null => {
-  if (!audioContext || audioContext.state === 'closed') {
-    try {
-      audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-    } catch (e) {
-      console.warn('Failed to create audio context:', e);
-      return null;
-    }
-  }
-  return audioContext;
-};
-
 export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: AcceptedAlertData) => void }) {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [myAlerts, setMyAlerts] = useState<Alert[]>([]);
@@ -58,73 +44,35 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
 
   const playAlertSound = useCallback(() => {
     if (!soundEnabledRef.current) return;
-
     try {
-      const ctx = getAudioContext();
+      const ctx = getAudioCtx();
       if (!ctx) return;
-
-      // Resume if suspended
+      const doPlay = (c: AudioContext) => {
+        const now = c.currentTime;
+        // Two siren cycles back-to-back (same sawtooth wail as IncomingAlertOverlay)
+        for (let i = 0; i < 2; i++) {
+          const t = now + i * 1.2;
+          const osc = c.createOscillator();
+          const gain = c.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(600, t);
+          osc.frequency.linearRampToValueAtTime(1200, t + 0.6);
+          osc.frequency.linearRampToValueAtTime(600, t + 1.2);
+          gain.gain.setValueAtTime(0, t);
+          gain.gain.linearRampToValueAtTime(0.5, t + 0.05);
+          gain.gain.setValueAtTime(0.5, t + 1.15);
+          gain.gain.linearRampToValueAtTime(0, t + 1.2);
+          osc.connect(gain);
+          gain.connect(c.destination);
+          osc.start(t);
+          osc.stop(t + 1.2);
+        }
+      };
       if (ctx.state === 'suspended') {
-        ctx.resume().catch(e => console.warn('Failed to resume audio:', e));
+        ctx.resume().then(() => doPlay(ctx)).catch(() => {});
+      } else {
+        doPlay(ctx);
       }
-
-      const now = ctx.currentTime;
-
-      // Create oscillator for alert sound (siren-like)
-      const osc1 = ctx.createOscillator();
-      const osc2 = ctx.createOscillator();
-      const gain = ctx.createGain();
-
-      osc1.type = 'sine';
-      osc2.type = 'square';
-      osc1.frequency.setValueAtTime(800, now);
-      osc2.frequency.setValueAtTime(1200, now);
-
-      // Create frequency sweep effect
-      osc1.frequency.exponentialRampToValueAtTime(600, now + 0.3);
-      osc2.frequency.exponentialRampToValueAtTime(900, now + 0.3);
-
-      gain.gain.setValueAtTime(0.3, now);
-      gain.gain.exponentialRampToValueAtTime(0.1, now + 0.3);
-
-      osc1.connect(gain);
-      osc2.connect(gain);
-      gain.connect(ctx.destination);
-
-      osc1.start(now);
-      osc2.start(now);
-      osc1.stop(now + 0.3);
-      osc2.stop(now + 0.3);
-
-      // Play second burst
-      setTimeout(() => {
-        if (!soundEnabledRef.current) return;
-        const currentCtx = getAudioContext();
-        if (!currentCtx) return;
-
-        const osc3 = currentCtx.createOscillator();
-        const osc4 = currentCtx.createOscillator();
-        const gain2 = currentCtx.createGain();
-
-        osc3.type = 'sine';
-        osc4.type = 'square';
-        osc3.frequency.setValueAtTime(900, currentCtx.currentTime);
-        osc4.frequency.setValueAtTime(1200, currentCtx.currentTime);
-        osc3.frequency.exponentialRampToValueAtTime(700, currentCtx.currentTime + 0.3);
-        osc4.frequency.exponentialRampToValueAtTime(1000, currentCtx.currentTime + 0.3);
-
-        gain2.gain.setValueAtTime(0.3, currentCtx.currentTime);
-        gain2.gain.exponentialRampToValueAtTime(0.1, currentCtx.currentTime + 0.3);
-
-        osc3.connect(gain2);
-        osc4.connect(gain2);
-        gain2.connect(currentCtx.destination);
-
-        osc3.start(currentCtx.currentTime);
-        osc4.start(currentCtx.currentTime);
-        osc3.stop(currentCtx.currentTime + 0.3);
-        osc4.stop(currentCtx.currentTime + 0.3);
-      }, 350);
     } catch (e) {
       console.warn('Failed to play alert sound:', e);
     }
@@ -134,8 +82,9 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
     fetchAlerts(true);
     fetchMyAlerts();
 
+    const channelName = `receiver-alerts-list-${Date.now()}`;
     const subscription = supabase
-      .channel('receiver-alerts-channel')
+      .channel(channelName)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'alerts' },
@@ -147,7 +96,9 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
           fetchMyAlerts();
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('[ReceiverAlerts] subscription:', status);
+      });
 
     return () => {
       subscription.unsubscribe();

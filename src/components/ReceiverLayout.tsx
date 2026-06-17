@@ -7,6 +7,7 @@ import { ReceiverSettings, getResponderSoundEnabled } from './ReceiverSettings';
 import { IncomingAlertOverlay } from './IncomingAlertOverlay';
 import { useTheme } from '../context/ThemeContext';
 import { supabase } from '../lib/supabase';
+import { unlockAudio, isAudioUnlocked, getAudioCtx } from '../hooks/useEmergencyAlert';
 
 interface AcceptedAlert {
   id: string;
@@ -69,34 +70,17 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
 
     // Check audio unlock state and show banner if needed
     useEffect(() => {
-      try {
-        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-        const isRunning = ctx.state === 'running';
-        ctx.close();
-        setAudioUnlocked(isRunning);
-        if (!isRunning) setShowAudioBanner(true);
-      } catch {
-        setShowAudioBanner(true);
-      }
+      const unlocked = isAudioUnlocked();
+      setAudioUnlocked(unlocked);
+      if (!unlocked) setShowAudioBanner(true);
     }, []);
 
-    const handleUnlockAudio = () => {
-      try {
-        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        gain.gain.setValueAtTime(0, ctx.currentTime);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.01);
-        ctx.resume().then(() => {
-          setAudioUnlocked(true);
-          setShowAudioBanner(false);
-          try { localStorage.setItem('safesync_responder_sound_enabled', 'true'); } catch {}
-        });
-      } catch {
+    const handleUnlockAudio = async () => {
+      const success = await unlockAudio();
+      if (success) {
+        setAudioUnlocked(true);
         setShowAudioBanner(false);
+        try { localStorage.setItem('safesync_responder_sound_enabled', 'true'); } catch {}
       }
     };
 
@@ -160,57 +144,36 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
         if (!user) return;
         userId = user.id;
 
-        // Get current on-duty status
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('on_duty')
-          .eq('id', user.id)
-          .maybeSingle();
+        const handleAlertData = (alertData: any) => {
+          if (!alertData || alertData.current_responder_id !== userId) return;
+          if (alertData.status !== 'ACTIVE') return;
+          if (hasActiveAlertRef.current) return;
+          if (processedAlertsRef.current.has(alertData.id)) return;
 
-        const isOnDuty = profile?.on_duty ?? false;
-        console.log('[Receiver] Setting up subscription, on_duty:', isOnDuty);
+          console.log('[Receiver] Alert assigned to me:', alertData.id);
+          processedAlertsRef.current.add(alertData.id);
 
-        // Listen for ALL alert changes - we'll filter by current_responder_id in the callback
-        // This is necessary because alerts are created first, then assigned via edge function
+          setIncomingAlert({
+            id: alertData.id,
+            emergency_type: alertData.emergency_type,
+            location: alertData.location,
+            latitude: toNumber(alertData.latitude),
+            longitude: toNumber(alertData.longitude),
+            client_id: alertData.client_id,
+            created_at: alertData.created_at,
+            current_responder_id: alertData.current_responder_id,
+            notified_responder_ids: alertData.notified_responder_ids
+          });
+        };
+
+        // Listen for both INSERT and UPDATE — edge function may set current_responder_id at creation
         channel = supabase
-          .channel('responder-alerts-channel-v4')
-          .on(
-            'postgres_changes',
-            {
-              event: 'UPDATE',
-              schema: 'public',
-              table: 'alerts'
-            },
-            (payload) => {
-              const alertData = payload.new as any;
-
-              console.log('[Receiver] Alert UPDATE:', alertData?.id, 'current_responder_id:', alertData?.current_responder_id, 'my id:', userId);
-
-              // Only process if this alert is assigned to me
-              if (!alertData || alertData.current_responder_id !== userId) return;
-
-              // Skip if alert is not ACTIVE
-              if (alertData.status !== 'ACTIVE') return;
-
-              // Skip if we've already processed this alert or are busy
-              if (hasActiveAlertRef.current) return;
-              if (processedAlertsRef.current.has(alertData.id)) return;
-
-              console.log('[Receiver] New alert assigned to me!', alertData.id);
-              processedAlertsRef.current.add(alertData.id);
-
-              setIncomingAlert({
-                id: alertData.id,
-                emergency_type: alertData.emergency_type,
-                location: alertData.location,
-                latitude: toNumber(alertData.latitude),
-                longitude: toNumber(alertData.longitude),
-                client_id: alertData.client_id,
-                created_at: alertData.created_at,
-                current_responder_id: alertData.current_responder_id,
-                notified_responder_ids: alertData.notified_responder_ids
-              });
-            }
+          .channel(`responder-alerts-v5-${user.id}`)
+          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'alerts' },
+            (payload) => { console.log('[Receiver] INSERT', payload.new?.id); handleAlertData(payload.new); }
+          )
+          .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'alerts' },
+            (payload) => { console.log('[Receiver] UPDATE', payload.new?.id, 'responder:', (payload.new as any)?.current_responder_id); handleAlertData(payload.new); }
           )
           .subscribe((status) => {
             console.log('[Receiver] Subscription status:', status);

@@ -1,223 +1,191 @@
 import { useRef, useCallback, useEffect } from 'react';
 
+// Module-level AudioContext singleton - persists across React renders
+// Must be created/resumed inside a user gesture to satisfy browser autoplay policy
+let _audioCtx: AudioContext | null = null;
+let _audioUnlocked = false;
+
+export function getAudioCtx(): AudioContext | null {
+  if (!_audioCtx || _audioCtx.state === 'closed') {
+    try {
+      _audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    } catch {
+      return null;
+    }
+  }
+  return _audioCtx;
+}
+
+/** Call this inside a click/tap handler to unlock the AudioContext. */
+export async function unlockAudio(): Promise<boolean> {
+  const ctx = getAudioCtx();
+  if (!ctx) return false;
+  try {
+    await ctx.resume();
+    // Play a 1ms silent buffer to satisfy Safari
+    const buf = ctx.createBuffer(1, 1, ctx.sampleRate);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    src.start();
+    _audioUnlocked = ctx.state === 'running';
+    return _audioUnlocked;
+  } catch {
+    return false;
+  }
+}
+
+export function isAudioUnlocked(): boolean {
+  return _audioUnlocked || (_audioCtx?.state === 'running') || false;
+}
+
+// ---------------------------------------------------------------------------
+// Siren synthesis — classic emergency wail: sweeps 600 Hz → 1200 Hz → 600 Hz
+// Duration of one sweep cycle: ~1.2 s. Loops continuously.
+// ---------------------------------------------------------------------------
+function scheduleSirenCycle(ctx: AudioContext, startAt: number, cycles: number): SchedState {
+  const nodes: AudioNode[] = [];
+
+  for (let i = 0; i < cycles; i++) {
+    const cycleStart = startAt + i * 1.2;
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sawtooth'; // sawtooth gives a harsh, urgent character
+
+    // Sweep up 600→1200 Hz in first 0.6s, then down 1200→600 Hz in next 0.6s
+    osc.frequency.setValueAtTime(600, cycleStart);
+    osc.frequency.linearRampToValueAtTime(1200, cycleStart + 0.6);
+    osc.frequency.linearRampToValueAtTime(600, cycleStart + 1.2);
+
+    // Gentle amplitude envelope to avoid clicks
+    gain.gain.setValueAtTime(0, cycleStart);
+    gain.gain.linearRampToValueAtTime(0.55, cycleStart + 0.05);
+    gain.gain.setValueAtTime(0.55, cycleStart + 1.15);
+    gain.gain.linearRampToValueAtTime(0, cycleStart + 1.2);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(cycleStart);
+    osc.stop(cycleStart + 1.2);
+
+    // Second harmonic at half volume for body
+    const osc2 = ctx.createOscillator();
+    osc2.type = 'sawtooth';
+    osc2.frequency.setValueAtTime(1200, cycleStart);
+    osc2.frequency.linearRampToValueAtTime(2400, cycleStart + 0.6);
+    osc2.frequency.linearRampToValueAtTime(1200, cycleStart + 1.2);
+
+    const gain2 = ctx.createGain();
+    gain2.gain.setValueAtTime(0, cycleStart);
+    gain2.gain.linearRampToValueAtTime(0.2, cycleStart + 0.05);
+    gain2.gain.setValueAtTime(0.2, cycleStart + 1.15);
+    gain2.gain.linearRampToValueAtTime(0, cycleStart + 1.2);
+
+    osc2.connect(gain2);
+    gain2.connect(ctx.destination);
+    osc2.start(cycleStart);
+    osc2.stop(cycleStart + 1.2);
+
+    nodes.push(osc, osc2, gain, gain2);
+  }
+
+  return { startAt, endAt: startAt + cycles * 1.2, nodes };
+}
+
+interface SchedState {
+  startAt: number;
+  endAt: number;
+  nodes: AudioNode[];
+}
+
+// ---------------------------------------------------------------------------
+
 interface EmergencyAlertOptions {
-  duration?: number;
+  duration?: number; // ms
   onVibrate?: boolean;
   onSound?: boolean;
 }
 
 export function useEmergencyAlert() {
-  const audioElementRef = useRef<HTMLAudioElement | null>(null);
+  const loopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const vibrationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isPlayingRef = useRef(false);
+  const stopRequestedRef = useRef(false);
 
-  const createAlertSound = useCallback(() => {
-    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const sampleRate = audioCtx.sampleRate;
-    // Create a phone ring sound - classic ring tone pattern
-    // Pattern: 2 rings (0.4s each with 0.2s gap), then 2s silence, repeat
-    const duration = 3.0;
-    const buffer = audioCtx.createBuffer(1, sampleRate * duration, sampleRate);
-    const data = buffer.getChannelData(0);
+  const stopAlert = useCallback(() => {
+    stopRequestedRef.current = true;
+    isPlayingRef.current = false;
 
-    for (let i = 0; i < buffer.length; i++) {
-      const t = i / sampleRate;
-      let sample = 0;
-
-      // Phone ring pattern within 3-second loop:
-      // 0.0 - 0.4s: Ring 1 (warble tone)
-      // 0.4 - 0.6s: Silence
-      // 0.6 - 1.0s: Ring 2 (warble tone)
-      // 1.0 - 3.0s: Silence
-
-      const cyclePos = t % 3.0;
-
-      if ((cyclePos >= 0 && cyclePos < 0.4) || (cyclePos >= 0.6 && cyclePos < 1.0)) {
-        // Ring tone - warble between two frequencies (classic phone ring)
-        const ringTime = cyclePos < 0.4 ? cyclePos : cyclePos - 0.6;
-        // Warble between 1200Hz and 1400Hz at 25Hz rate
-        const warble = Math.sin(2 * Math.PI * 25 * ringTime);
-        const freq = 1300 + 100 * warble;
-
-        // Add amplitude envelope for realistic ring
-        const envelope = Math.sin(Math.PI * ringTime / 0.4);
-        sample = 0.6 * Math.sin(2 * Math.PI * freq * t) * envelope;
-
-        // Add harmonics for richer ring sound
-        sample += 0.2 * Math.sin(2 * Math.PI * (freq * 2) * t) * envelope;
-        sample += 0.1 * Math.sin(2 * Math.PI * (freq * 3) * t) * envelope;
-      }
-
-      data[i] = sample;
+    if (loopTimerRef.current) {
+      clearTimeout(loopTimerRef.current);
+      loopTimerRef.current = null;
     }
-
-    const wavData = audioCtx.createWavBuffer ?
-      buffer : encodeWAV(buffer);
-
-    const blob = new Blob([wavData], { type: 'audio/wav' });
-    const url = URL.createObjectURL(blob);
-    audioCtx.close();
-    return url;
-  }, []);
-
-  const vibrate = useCallback(() => {
-    if ('vibrate' in navigator) {
-      navigator.vibrate([
-        200, 100, 200, 100, 200,
-        400, 200, 400, 200, 400,
-        200, 100, 200, 100, 200
-      ]);
+    if (vibrationIntervalRef.current) {
+      clearInterval(vibrationIntervalRef.current);
+      vibrationIntervalRef.current = null;
     }
+    if ('vibrate' in navigator) navigator.vibrate(0);
   }, []);
-
-  const startVibration = useCallback(() => {
-    vibrate();
-    vibrationIntervalRef.current = setInterval(() => {
-      vibrate();
-    }, 2500);
-  }, [vibrate]);
 
   const startAlert = useCallback((options: EmergencyAlertOptions = {}) => {
     const { duration = 120000, onVibrate = true, onSound = true } = options;
 
     if (isPlayingRef.current) return;
     isPlayingRef.current = true;
+    stopRequestedRef.current = false;
 
     if (onSound) {
-      try {
-        if (!audioElementRef.current) {
-          const audioUrl = createAlertSound();
-          audioElementRef.current = new Audio(audioUrl);
-          audioElementRef.current.loop = true;
-          audioElementRef.current.volume = 1.0;
+      const ctx = getAudioCtx();
+      if (ctx) {
+        // Resume in case context was suspended after being unlocked
+        const doPlay = () => {
+          if (stopRequestedRef.current) return;
+
+          // Schedule 5 siren cycles (~6 s) ahead, then reschedule
+          const BATCH = 5;
+          const scheduled = scheduleSirenCycle(ctx, ctx.currentTime + 0.05, BATCH);
+
+          const rescheduleIn = (scheduled.endAt - ctx.currentTime - 0.2) * 1000;
+          loopTimerRef.current = setTimeout(() => {
+            if (!stopRequestedRef.current) doPlay();
+          }, Math.max(50, rescheduleIn));
+        };
+
+        if (ctx.state === 'suspended') {
+          ctx.resume().then(() => doPlay()).catch(() => {});
+        } else {
+          doPlay();
         }
-
-        const playPromise = audioElementRef.current.play();
-        if (playPromise !== undefined) {
-          playPromise.catch((error) => {
-            console.log('Audio autoplay blocked:', error);
-          });
-        }
-      } catch (error) {
-        console.log('Error creating audio:', error);
       }
     }
 
-    if (onVibrate) {
-      startVibration();
+    if (onVibrate && 'vibrate' in navigator) {
+      const vibratePattern = () => navigator.vibrate([300, 150, 300, 150, 600]);
+      vibratePattern();
+      vibrationIntervalRef.current = setInterval(vibratePattern, 2000);
     }
 
-    timeoutRef.current = setTimeout(() => {
-      stopAlert();
-    }, duration);
-  }, [createAlertSound, startVibration]);
-
-  const stopAlert = useCallback(() => {
-    isPlayingRef.current = false;
-
-    if (audioElementRef.current) {
-      audioElementRef.current.pause();
-      audioElementRef.current.currentTime = 0;
-    }
-
-    if (vibrationIntervalRef.current) {
-      clearInterval(vibrationIntervalRef.current);
-      vibrationIntervalRef.current = null;
-    }
-
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-
-    if ('vibrate' in navigator) {
-      navigator.vibrate(0);
-    }
-  }, []);
-
-  const testAlert = useCallback(() => {
-    try {
-      if (!audioElementRef.current) {
-        const audioUrl = createAlertSound();
-        audioElementRef.current = new Audio(audioUrl);
-        audioElementRef.current.loop = false;
-        audioElementRef.current.volume = 1.0;
-      }
-
-      const playPromise = audioElementRef.current.play();
-      if (playPromise !== undefined) {
-        playPromise.catch((error) => {
-          console.log('Test audio failed:', error);
-        });
-      }
-    } catch (error) {
-      console.log('Test alert error:', error);
-    }
-    vibrate();
-  }, [createAlertSound, vibrate]);
-
-  useEffect(() => {
-    return () => {
-      stopAlert();
-      if (audioElementRef.current) {
-        audioElementRef.current = null;
-      }
-    };
+    // Auto-stop after duration
+    setTimeout(() => stopAlert(), duration);
   }, [stopAlert]);
 
-  return {
-    startAlert,
-    stopAlert,
-    testAlert,
-    isPlaying: isPlayingRef.current
-  };
-}
+  const testAlert = useCallback(() => {
+    const ctx = getAudioCtx();
+    if (!ctx) return;
 
-function encodeWAV(buffer: AudioBuffer): ArrayBuffer {
-  const numChannels = buffer.numberOfChannels;
-  const sampleRate = buffer.sampleRate;
-  const format = 1;
-  const bitDepth = 16;
+    const resume = ctx.state === 'suspended' ? ctx.resume() : Promise.resolve();
+    resume.then(() => {
+      scheduleSirenCycle(ctx, ctx.currentTime + 0.05, 3);
+    }).catch(() => {});
 
-  const bytesPerSample = bitDepth / 8;
-  const blockAlign = numChannels * bytesPerSample;
-  const byteRate = sampleRate * blockAlign;
-  const dataSize = buffer.length * blockAlign;
-  const headerSize = 44;
-  const totalSize = headerSize + dataSize;
+    if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]);
+  }, []);
 
-  const arrayBuffer = new ArrayBuffer(totalSize);
-  const view = new DataView(arrayBuffer);
+  useEffect(() => {
+    return () => { stopAlert(); };
+  }, [stopAlert]);
 
-  writeString(view, 0, 'RIFF');
-  view.setUint32(4, totalSize - 8, true);
-  writeString(view, 8, 'WAVE');
-  writeString(view, 12, 'fmt ');
-  view.setUint32(16, 16, true);
-  view.setUint16(20, format, true);
-  view.setUint16(22, numChannels, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, byteRate, true);
-  view.setUint16(32, blockAlign, true);
-  view.setUint16(34, bitDepth, true);
-  writeString(view, 36, 'data');
-  view.setUint32(40, dataSize, true);
-
-  const channelData = buffer.getChannelData(0);
-  let offset = 44;
-  for (let i = 0; i < buffer.length; i++) {
-    const sample = Math.max(-1, Math.min(1, channelData[i]));
-    const intSample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
-    view.setInt16(offset, intSample, true);
-    offset += 2;
-  }
-
-  return arrayBuffer;
-}
-
-function writeString(view: DataView, offset: number, str: string) {
-  for (let i = 0; i < str.length; i++) {
-    view.setUint8(offset + i, str.charCodeAt(i));
-  }
+  return { startAlert, stopAlert, testAlert, isPlaying: isPlayingRef.current };
 }

@@ -2,7 +2,7 @@ import { User, Flame, HeartPulse, Save, Loader, Volume2, VolumeX, Bell } from 'l
 import { useState, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { supabase } from '../lib/supabase';
-import { useEmergencyAlert } from '../hooks/useEmergencyAlert';
+import { useEmergencyAlert, unlockAudio, isAudioUnlocked } from '../hooks/useEmergencyAlert';
 
 interface ProfileData {
   name: string;
@@ -35,14 +35,7 @@ export function ReceiverSettings() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check if audio context can be created (proxy for browser audio state)
-    try {
-      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      if (ctx.state === 'running') setAudioUnlocked(true);
-      ctx.close();
-    } catch {
-      // ignore
-    }
+    setAudioUnlocked(isAudioUnlocked());
   }, []);
 
   const handleToggleSound = (enabled: boolean) => {
@@ -54,25 +47,12 @@ export function ReceiverSettings() {
     }
   };
 
-  const handleUnlockAudio = () => {
-    // Play a silent sound to unlock browser audio context
-    try {
-      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      gain.gain.setValueAtTime(0, ctx.currentTime);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.01);
-      ctx.resume().then(() => {
-        setAudioUnlocked(true);
-        handleToggleSound(true);
-        // Now play the test alert so they can confirm it works
-        setTimeout(() => testAlert(), 100);
-      });
-    } catch {
-      // ignore
+  const handleUnlockAudio = async () => {
+    const success = await unlockAudio();
+    if (success) {
+      setAudioUnlocked(true);
+      handleToggleSound(true);
+      setTimeout(() => testAlert(), 100);
     }
   };
 
