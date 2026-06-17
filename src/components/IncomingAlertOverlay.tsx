@@ -18,6 +18,7 @@ interface IncomingAlertOverlayProps {
   onDecline: () => void;
   onTimeout: () => void;
   duration?: number;
+  soundEnabled?: boolean;
 }
 
 export function IncomingAlertOverlay({
@@ -25,11 +26,11 @@ export function IncomingAlertOverlay({
   onAccept,
   onDecline,
   onTimeout,
-  duration = 120
+  duration = 120,
+  soundEnabled = true
 }: IncomingAlertOverlayProps) {
   const [timeLeft, setTimeLeft] = useState(duration);
-  const [isMuted, setIsMuted] = useState(false);
-  const [audioAttempted, setAudioAttempted] = useState(false);
+  const [isMuted, setIsMuted] = useState(!soundEnabled);
   const acceptButtonRef = useRef<HTMLButtonElement>(null);
   const { startAlert, stopAlert } = useEmergencyAlert();
   const startedRef = useRef(false);
@@ -42,14 +43,22 @@ export function IncomingAlertOverlay({
     // Focus accept button
     acceptButtonRef.current?.focus();
 
-    // Attempt to start sound immediately (may be blocked)
-    startAlert({
-      duration: duration * 1000,
-      onVibrate: true,
-      onSound: true
-    });
-    setAudioAttempted(true);
-  }, [duration, startAlert]);
+    // Only attempt sound if user has enabled it
+    if (soundEnabled) {
+      startAlert({
+        duration: duration * 1000,
+        onVibrate: true,
+        onSound: true
+      });
+    } else {
+      // Still vibrate even if sound is off
+      startAlert({
+        duration: duration * 1000,
+        onVibrate: true,
+        onSound: false
+      });
+    }
+  }, [duration, startAlert, soundEnabled]);
 
   // Timer countdown
   useEffect(() => {
@@ -77,17 +86,14 @@ export function IncomingAlertOverlay({
   };
 
   const handleMuteToggle = () => {
-    if (isMuted) {
-      // Unmute - restart alert
-      startAlert({
-        duration: timeLeft * 1000,
-        onVibrate: true,
-        onSound: true
-      });
+    const nowMuting = !isMuted;
+    if (!nowMuting) {
+      startAlert({ duration: timeLeft * 1000, onVibrate: true, onSound: true });
     } else {
       stopAlert();
     }
-    setIsMuted(!isMuted);
+    setIsMuted(nowMuting);
+    try { localStorage.setItem('safesync_responder_sound_enabled', String(!nowMuting)); } catch {}
   };
 
   const formatTime = (seconds: number) => {

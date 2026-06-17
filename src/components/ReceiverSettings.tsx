@@ -1,4 +1,4 @@
-import { User, Flame, HeartPulse, Save, Loader, Volume2 } from 'lucide-react';
+import { User, Flame, HeartPulse, Save, Loader, Volume2, VolumeX, Bell } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { supabase } from '../lib/supabase';
@@ -11,16 +11,70 @@ interface ProfileData {
   response_types: string[];
 }
 
+const SOUND_PREF_KEY = 'safesync_responder_sound_enabled';
+
+export function getResponderSoundEnabled(): boolean {
+  try {
+    const val = localStorage.getItem(SOUND_PREF_KEY);
+    return val === null ? true : val === 'true';
+  } catch {
+    return true;
+  }
+}
+
 export function ReceiverSettings() {
   const { theme, toggleTheme } = useTheme();
   const darkMode = theme === 'dark';
   const { testAlert } = useEmergencyAlert();
 
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(() => getResponderSoundEnabled());
+  const [audioUnlocked, setAudioUnlocked] = useState(false);
   const [profile, setProfile] = useState<ProfileData>({ name: '', email: '', phone: '', response_types: [] });
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Check if audio context can be created (proxy for browser audio state)
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      if (ctx.state === 'running') setAudioUnlocked(true);
+      ctx.close();
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const handleToggleSound = (enabled: boolean) => {
+    setSoundEnabled(enabled);
+    try {
+      localStorage.setItem(SOUND_PREF_KEY, String(enabled));
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleUnlockAudio = () => {
+    // Play a silent sound to unlock browser audio context
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0, ctx.currentTime);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.01);
+      ctx.resume().then(() => {
+        setAudioUnlocked(true);
+        handleToggleSound(true);
+        // Now play the test alert so they can confirm it works
+        setTimeout(() => testAlert(), 100);
+      });
+    } catch {
+      // ignore
+    }
+  };
 
   const handleTestAlertSound = () => {
     testAlert();
@@ -116,6 +170,35 @@ export function ReceiverSettings() {
       <h2 className="text-xl font-bold mb-8 uppercase tracking-widest">Settings</h2>
 
       <div className="space-y-6">
+        {/* Audio Permission Banner */}
+        {!audioUnlocked && (
+          <div className={`border-2 rounded-xl p-5 ${darkMode ? 'bg-yellow-900/30 border-yellow-600' : 'bg-yellow-50 border-yellow-400'}`}>
+            <div className="flex items-center gap-3 mb-3">
+              <Bell className="w-6 h-6 text-yellow-600 shrink-0" />
+              <h3 className="font-bold text-yellow-700">Enable Alert Audio</h3>
+            </div>
+            <p className={`text-sm mb-4 ${darkMode ? 'text-yellow-300' : 'text-yellow-700'}`}>
+              Browsers block audio until you interact with the page. Tap the button below to allow alert sounds — you will hear a test ring to confirm it is working.
+            </p>
+            <button
+              onClick={handleUnlockAudio}
+              className="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition-colors"
+            >
+              <Volume2 className="w-5 h-5" />
+              Tap to Enable Alert Sounds
+            </button>
+          </div>
+        )}
+
+        {audioUnlocked && soundEnabled && (
+          <div className={`border rounded-xl p-4 flex items-center gap-3 ${darkMode ? 'bg-green-900/30 border-green-700' : 'bg-green-50 border-green-300'}`}>
+            <Volume2 className="w-5 h-5 text-green-600 shrink-0" />
+            <p className={`text-sm font-bold ${darkMode ? 'text-green-400' : 'text-green-700'}`}>
+              Alert sounds are enabled. You will hear incoming alerts.
+            </p>
+          </div>
+        )}
+
         {/* Profile Section */}
         <div className={`border rounded-xl p-6 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
           <div className="flex items-center gap-3 mb-6">
@@ -238,25 +321,42 @@ export function ReceiverSettings() {
           </button>
         </div>
 
-        {/* Notifications */}
-        <div className="border-t pt-6">
-          <span className="font-bold block mb-4">Alert Settings</span>
+        {/* Alert Sound Settings */}
+        <div className={`border rounded-xl p-6 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
+          <span className="font-bold block mb-4">Alert Sound Settings</span>
           <div className="space-y-4">
             <div className="flex justify-between items-center">
-              <span className="text-sm">Enable Sound Alerts</span>
-              <button onClick={() => setNotificationsEnabled(!notificationsEnabled)} className={`w-12 h-6 ${notificationsEnabled ? 'bg-blue-600' : 'bg-gray-400'} rounded-full transition-all`}>
-                <div className={`w-4 h-4 bg-white rounded-full transition-all ${notificationsEnabled ? 'ml-7' : 'ml-1'}`}></div>
+              <div>
+                <span className="text-sm font-bold">Enable Sound Alerts</span>
+                <p className="text-xs text-gray-500 mt-0.5">Plays a ring tone when a new alert arrives</p>
+              </div>
+              <button
+                onClick={() => handleToggleSound(!soundEnabled)}
+                className={`w-12 h-6 ${soundEnabled ? 'bg-blue-600' : 'bg-gray-400'} rounded-full transition-all shrink-0`}
+              >
+                <div className={`w-4 h-4 bg-white rounded-full transition-all ${soundEnabled ? 'ml-7' : 'ml-1'}`}></div>
               </button>
             </div>
+
+            {!audioUnlocked && (
+              <button
+                onClick={handleUnlockAudio}
+                className="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition-colors"
+              >
+                <Bell className="w-4 h-4" />
+                Unlock Audio Permission
+              </button>
+            )}
+
             <button
               onClick={handleTestAlertSound}
               className={`w-full flex items-center justify-center gap-2 p-3 rounded-lg border text-sm font-bold transition-all ${
                 darkMode
-                  ? 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
-                  : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
+                  ? 'bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600'
+                  : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
               }`}
             >
-              <Volume2 className="w-4 h-4" />
+              {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
               Test Alert Sound
             </button>
           </div>

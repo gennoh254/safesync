@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Hop as Home, Bell, Map, Settings, LogOut } from 'lucide-react';
+import { Hop as Home, Bell, Map, Settings, LogOut, Volume2 } from 'lucide-react';
 import { ReceiverAlerts } from './ReceiverAlerts';
 import { ReceiverHome } from './ReceiverHome';
 import { ReceiverTrackingPage } from './ReceiverTrackingPage';
-import { ReceiverSettings } from './ReceiverSettings';
+import { ReceiverSettings, getResponderSoundEnabled } from './ReceiverSettings';
 import { IncomingAlertOverlay } from './IncomingAlertOverlay';
 import { useTheme } from '../context/ThemeContext';
 import { supabase } from '../lib/supabase';
@@ -47,8 +47,11 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
     const [acceptedAlert, setAcceptedAlert] = useState<AcceptedAlert | null>(null);
     const [incomingAlert, setIncomingAlert] = useState<IncomingAlert | null>(null);
     const [hasActiveAlert, setHasActiveAlert] = useState(false);
+    const [showAudioBanner, setShowAudioBanner] = useState(false);
+    const [audioUnlocked, setAudioUnlocked] = useState(false);
     const { theme } = useTheme();
     const darkMode = theme === 'dark';
+    const soundEnabled = getResponderSoundEnabled();
 
     // Use refs to avoid stale closure issues in subscriptions
     const hasActiveAlertRef = useRef(false);
@@ -63,6 +66,39 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
     useEffect(() => {
       incomingAlertRef.current = incomingAlert;
     }, [incomingAlert]);
+
+    // Check audio unlock state and show banner if needed
+    useEffect(() => {
+      try {
+        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const isRunning = ctx.state === 'running';
+        ctx.close();
+        setAudioUnlocked(isRunning);
+        if (!isRunning) setShowAudioBanner(true);
+      } catch {
+        setShowAudioBanner(true);
+      }
+    }, []);
+
+    const handleUnlockAudio = () => {
+      try {
+        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0, ctx.currentTime);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.01);
+        ctx.resume().then(() => {
+          setAudioUnlocked(true);
+          setShowAudioBanner(false);
+          try { localStorage.setItem('safesync_responder_sound_enabled', 'true'); } catch {}
+        });
+      } catch {
+        setShowAudioBanner(false);
+      }
+    };
 
     // Check if this responder already has an active alert on mount
     useEffect(() => {
@@ -334,6 +370,30 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
 
     return (
         <div className={`flex flex-col lg:flex-row h-screen w-full ${darkMode ? 'bg-gray-900 text-white' : 'bg-white text-black'} font-sans`}>
+            {/* Audio permission banner */}
+            {showAudioBanner && !audioUnlocked && (
+              <div className="fixed top-0 inset-x-0 z-[9998] bg-yellow-500 text-white px-4 py-3 flex items-center justify-between shadow-lg">
+                <div className="flex items-center gap-3">
+                  <Volume2 className="w-5 h-5 shrink-0" />
+                  <span className="text-sm font-bold">Enable audio to receive alert ring tones</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleUnlockAudio}
+                    className="bg-white text-yellow-700 font-bold text-sm px-4 py-1.5 rounded-lg hover:bg-yellow-50 transition-colors"
+                  >
+                    Enable Audio
+                  </button>
+                  <button
+                    onClick={() => setShowAudioBanner(false)}
+                    className="text-white/70 hover:text-white text-sm px-2"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Incoming Alert Overlay */}
             {incomingAlert && !hasActiveAlert && (
               <IncomingAlertOverlay
@@ -342,6 +402,7 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
                 onDecline={handleDeclineIncomingAlert}
                 onTimeout={handleTimeoutIncomingAlert}
                 duration={ALERT_TIMEOUT_SECONDS}
+                soundEnabled={soundEnabled}
               />
             )}
 

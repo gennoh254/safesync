@@ -239,7 +239,7 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
   const handleAlertAccepted = (alertId: string) => {
     setIsAlertActive(false);
     setSelectedAlertId(alertId);
-    setActiveTab('alerts');
+    setActiveTab('map');
   };
 
   const handleSaveProfile = async () => {
