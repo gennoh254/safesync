@@ -8,7 +8,7 @@ import { IncomingAlertOverlay } from './IncomingAlertOverlay';
 import { useTheme } from '../context/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { unlockAudio, isAudioUnlocked, getAudioCtx } from '../hooks/useEmergencyAlert';
-import { usePushNotifications } from '../hooks/usePushNotifications';
+import { usePushNotifications } from '../context/PushNotificationContext';
 
 interface AcceptedAlert {
   id: string;
@@ -388,39 +388,35 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
     return (
         <div className={`flex flex-col lg:flex-row h-screen w-full ${darkMode ? 'bg-gray-900 text-white' : 'bg-white text-black'} font-sans`}>
             {/* Push + Audio permission banner */}
-            {(showAudioBanner || (push.isSupported && !push.isSubscribed && push.permission !== 'denied' && !push.loading)) && (
+            {(push.isSupported && !push.isSubscribed && push.permission !== 'loading') && (
               <div className="fixed top-0 inset-x-0 z-[9998] bg-red-600 text-white px-4 py-3 shadow-lg">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3 min-w-0">
                     <BellRing className="w-5 h-5 shrink-0 animate-bounce" />
                     <span className="text-sm font-bold truncate">
-                      {!push.isSubscribed ? 'Enable alert notifications to receive emergency calls' : 'Enable audio for in-app ring tone'}
+                      Enable notifications to receive emergency alert calls
                     </span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    {push.isSupported && !push.isSubscribed && push.permission !== 'denied' && (
+                    {push.permission !== 'denied' && (
                       <button
+                        disabled={push.subscribing}
                         onClick={async () => {
                           const ok = await push.subscribe();
                           if (ok) await handleUnlockAudio();
                         }}
-                        className="bg-white text-red-700 font-bold text-sm px-4 py-1.5 rounded-lg hover:bg-red-50 transition-colors whitespace-nowrap"
+                        className={`font-bold text-sm px-4 py-1.5 rounded-lg transition-colors whitespace-nowrap ${
+                          push.subscribing
+                            ? 'bg-white/40 text-white cursor-wait'
+                            : 'bg-white text-red-700 hover:bg-red-50'
+                        }`}
                       >
-                        Enable Alerts
-                      </button>
-                    )}
-                    {showAudioBanner && !audioUnlocked && (
-                      <button
-                        onClick={handleUnlockAudio}
-                        className="bg-white/20 hover:bg-white/30 font-bold text-sm px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 whitespace-nowrap"
-                      >
-                        <Volume2 className="w-4 h-4" />
-                        Audio
+                        {push.subscribing ? 'Enabling...' : 'Enable Alerts'}
                       </button>
                     )}
                     <button
-                      onClick={() => { setShowAudioBanner(false); }}
-                      className="text-white/70 hover:text-white text-lg px-1"
+                      onClick={() => setShowAudioBanner(false)}
+                      className="text-white/70 hover:text-white text-lg px-1 leading-none"
                       aria-label="Dismiss"
                     >
                       ×
@@ -429,8 +425,11 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
                 </div>
                 {push.permission === 'denied' && (
                   <p className="text-xs text-white/80 mt-1 pl-8">
-                    Notifications blocked in browser settings. Open browser settings → Notifications → Allow for this site.
+                    Blocked by browser. Click the lock icon in the address bar → Notifications → Allow.
                   </p>
+                )}
+                {push.errorMessage && (
+                  <p className="text-xs text-yellow-200 mt-1 pl-8">{push.errorMessage}</p>
                 )}
               </div>
             )}

@@ -5,6 +5,7 @@ import { HomeDashboard } from './components/HomeDashboard';
 import { ReceiverLayout } from './components/ReceiverLayout';
 import { AlertProvider } from './context/AlertContext';
 import { ThemeProvider } from './context/ThemeContext';
+import { PushNotificationProvider } from './context/PushNotificationContext';
 import { Header } from './components/Header';
 import { FooterStatusBar } from './components/Footer';
 import { supabase } from './lib/supabase';
@@ -82,6 +83,7 @@ export default function App() {
 
   return (
     <ThemeProvider>
+      <PushNotificationProvider>
       <AlertProvider>
         {!userType ? (
           <div className="flex flex-col min-h-screen bg-gray-100 text-black">
@@ -112,6 +114,7 @@ export default function App() {
           </div>
         )}
       </AlertProvider>
+      </PushNotificationProvider>
     </ThemeProvider>
   );
 }
