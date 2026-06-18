@@ -108,14 +108,30 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
   const fetchAlerts = async (showLoading = true) => {
     try {
       if (showLoading) setLoading(true);
-      const { data, error: err } = await supabase
+      const { data: { user } } = await supabase.auth.getUser();
+
+      // Fetch all ACTIVE alerts (available for any responder to accept)
+      const { data: activeAlerts, error: activeErr } = await supabase
         .from('alerts')
         .select('*')
         .eq('status', 'ACTIVE')
         .order('created_at', { ascending: false });
 
-      if (err) throw err;
-      setAlerts(data || []);
+      if (activeErr) throw activeErr;
+
+      // Also fetch this responder's own ACCEPTED alerts (in progress)
+      let myActive: Alert[] = [];
+      if (user) {
+        const { data: acceptedData } = await supabase
+          .from('alerts')
+          .select('*')
+          .eq('current_responder_id', user.id)
+          .eq('status', 'ACCEPTED')
+          .order('created_at', { ascending: false });
+        myActive = acceptedData || [];
+      }
+
+      setAlerts([...myActive, ...(activeAlerts || [])]);
       setError(null);
     } catch (err: any) {
       setError(err.message ?? 'Failed to fetch alerts');
@@ -134,7 +150,7 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
         .from('alerts')
         .select('*')
         .eq('current_responder_id', user.id)
-        .in('status', ['ACCEPTED', 'RESOLVED', 'UNRESOLVED'])
+        .in('status', ['RESOLVED', 'UNRESOLVED'])
         .order('created_at', { ascending: false });
 
       if (err) throw err;
@@ -309,8 +325,9 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {alerts.map(alert => {
                 const priority = getPriority(alert.emergency_type);
+                const isMyActive = alert.status === 'ACCEPTED';
                 return (
-                  <div key={alert.id} className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
+                  <div key={alert.id} className={`bg-white p-6 rounded-2xl border shadow-sm hover:shadow-md transition-shadow ${isMyActive ? 'border-blue-200 shadow-blue-100' : 'border-slate-100'}`}>
                     <div className="flex justify-between items-start mb-4">
                       <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${priority.color}`}>
                         {priority.label}
@@ -328,18 +345,35 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
                       </h3>
                     </div>
 
+                    {isMyActive && (
+                      <div className="mb-4 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg">
+                        <div className="flex items-center gap-2 text-blue-700 text-sm font-bold">
+                          <Navigation className="w-4 h-4" />
+                          In Progress
+                        </div>
+                        <p className="text-xs text-blue-500 mt-1">You have accepted this alert. Check the Map tab.</p>
+                      </div>
+                    )}
+
                     <p className="text-sm text-slate-600 mb-6 flex items-start gap-1">
                       <MapPin className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
                       <span>{alert.location || 'Location not available'}</span>
                     </p>
 
                     <div className="flex gap-2">
-                      <button
-                        onClick={() => handleAcceptAlert(alert)}
-                        className="flex-grow bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-colors"
-                      >
-                        ACCEPT
-                      </button>
+                      {isMyActive ? (
+                        <div className="flex-grow py-3 rounded-xl bg-gray-100 text-gray-500 font-bold text-sm text-center flex items-center justify-center gap-2">
+                          <Navigation className="w-4 h-4" />
+                          Assigned to You
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => handleAcceptAlert(alert)}
+                          className="flex-grow bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-colors"
+                        >
+                          ACCEPT
+                        </button>
+                      )}
                       <button className="px-4 border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-500">
                         <Info className="w-5 h-5" />
                       </button>

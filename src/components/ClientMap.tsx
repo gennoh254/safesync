@@ -1,7 +1,7 @@
 import { APIProvider, Map, AdvancedMarker, Polyline } from '@vis.gl/react-google-maps';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import { Navigation, Hop as Home, Loader as Loader2, CircleAlert as AlertCircle, Users, CircleCheck as CheckCircle, X, ChevronDown, ChevronUp, Phone, MapPin, Locate, Maximize2 } from 'lucide-react';
+import { Navigation, Hop as Home, Loader as Loader2, CircleAlert as AlertCircle, Users, CircleCheck as CheckCircle, X, ChevronDown, ChevronUp, Phone, MapPin, Locate, Maximize2, Star } from 'lucide-react';
 
 const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_PLATFORM_KEY || process.env.GOOGLE_MAPS_PLATFORM_KEY || '';
 
@@ -45,6 +45,10 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
   const [isMapExpanded, setIsMapExpanded] = useState(false);
+  const [showRating, setShowRating] = useState(false);
+  const [rating, setRating] = useState(0);
+  const [hoveredRating, setHoveredRating] = useState(0);
+  const [ratingSubmitted, setRatingSubmitted] = useState(false);
   const activeAlertResponderRef = useRef<ResponderLocation | null>(null);
 
   // Recenter on client location
@@ -355,15 +359,31 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
 
   const handleResolveAlert = async () => {
     if (!activeAlert) return;
+    setShowRating(true);
+  };
+
+  const handleSubmitRating = async () => {
+    if (!activeAlert || rating === 0) return;
     setResolving(true);
     setResolveError(null);
     try {
       const { error: err } = await supabase
         .from('alerts')
-        .update({ status: 'RESOLVED', resolved_at: new Date().toISOString() })
+        .update({
+          status: 'RESOLVED',
+          resolved_at: new Date().toISOString(),
+          responder_rating: rating,
+        })
         .eq('id', activeAlert.id);
       if (err) throw err;
-      setActiveAlert({ ...activeAlert, status: 'RESOLVED', resolved_at: new Date().toISOString() });
+      setActiveAlert({
+        ...activeAlert,
+        status: 'RESOLVED',
+        resolved_at: new Date().toISOString(),
+        responder_rating: rating,
+      });
+      setRatingSubmitted(true);
+      setShowRating(false);
     } catch (err: any) {
       setResolveError(err.message ?? 'Failed to resolve alert');
     } finally {
@@ -605,8 +625,8 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
               </>
             )}
 
-            {/* Resolve button - client acknowledges emergency is attended to */}
-            {isAccepted && (
+            {/* Resolve button + rating flow */}
+            {isAccepted && !showRating && !ratingSubmitted && (
               <button
                 onClick={handleResolveAlert}
                 disabled={resolving}
@@ -620,6 +640,47 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
                 {resolving ? 'Resolving...' : 'RESOLVE EMERGENCY'}
               </button>
             )}
+
+            {/* Rating UI */}
+            {showRating && !ratingSubmitted && (
+              <div className="mt-4 p-4 bg-yellow-900/20 border border-yellow-800 rounded-xl">
+                <p className="text-sm font-bold text-yellow-400 text-center mb-3">Rate your responder's service</p>
+                <div className="flex justify-center gap-2 mb-3">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      onClick={() => setRating(star)}
+                      onMouseEnter={() => setHoveredRating(star)}
+                      onMouseLeave={() => setHoveredRating(0)}
+                      className="transition-transform hover:scale-110"
+                    >
+                      <Star
+                        className={`w-8 h-8 ${
+                          star <= (hoveredRating || rating)
+                            ? 'text-yellow-400 fill-yellow-400'
+                            : 'text-gray-600'
+                        }`}
+                      />
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-center text-gray-500 mb-3">
+                  {rating === 0 ? 'Click to rate' : `${rating} star${rating > 1 ? 's' : ''}`}
+                </p>
+                <button
+                  onClick={handleSubmitRating}
+                  disabled={rating === 0 || resolving}
+                  className="w-full bg-green-600 hover:bg-green-700 disabled:bg-green-800 disabled:opacity-60 text-white font-bold py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2 text-sm"
+                >
+                  {resolving ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <CheckCircle className="w-4 h-4" />
+                  )}
+                  {resolving ? 'Submitting...' : 'Submit Rating & Resolve'}
+                </button>
+              </div>
+            )}
             {resolveError && (
               <p className="text-red-400 text-xs mt-2">{resolveError}</p>
             )}
@@ -632,6 +693,23 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
             <CheckCircle className="w-8 h-8 text-green-500 mx-auto mb-2" />
             <p className="font-bold text-green-400 uppercase tracking-wide text-sm">Emergency Resolved</p>
             <p className="text-xs text-green-500/70 mt-1">This incident has been marked as resolved</p>
+            {activeAlert.responder_rating && (
+              <div className="mt-3 pt-3 border-t border-green-800">
+                <p className="text-xs text-gray-400 mb-1">Your rating:</p>
+                <div className="flex justify-center gap-1">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <Star
+                      key={star}
+                      className={`w-4 h-4 ${
+                        star <= activeAlert.responder_rating
+                          ? 'text-yellow-400 fill-yellow-400'
+                          : 'text-gray-600'
+                      }`}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

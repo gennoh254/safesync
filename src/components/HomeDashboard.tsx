@@ -1,4 +1,4 @@
-import { MapPin, CircleAlert as AlertCircle, Settings, Bell, Hop as Home, Map as MapIcon, Flame, HeartPulse, Navigation, LogOut, Loader as Loader2, CircleCheck as CheckCircle, Clock, User, Save, TriangleAlert as AlertTriangle } from 'lucide-react';
+import { MapPin, CircleAlert as AlertCircle, Settings, Bell, Hop as Home, Map as MapIcon, Flame, HeartPulse, Navigation, LogOut, Loader as Loader2, CircleCheck as CheckCircle, Clock, User, Save, TriangleAlert as AlertTriangle, Star } from 'lucide-react';
 import React, { useState, useEffect } from 'react';
 import { AlertSentDashboard } from './AlertSentDashboard';
 import { ClientMap } from './ClientMap';
@@ -18,6 +18,7 @@ interface AlertRecord {
   updated_at: string;
   responder_id?: string;
   responder?: { name: string; email: string } | null;
+  responder_rating?: number | null;
 }
 
 interface ClientProfile {
@@ -575,6 +576,24 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
                                 <div className="mt-3 flex items-center gap-1.5 text-green-600 text-xs font-bold">
                                   <CheckCircle className="w-4 h-4" />
                                   Resolved
+                                </div>
+                              )}
+                              {isResolved && alert.responder_rating && (
+                                <div className="mt-2 flex items-center gap-1.5">
+                                  <span className="text-xs text-gray-500">Rating:</span>
+                                  <div className="flex gap-0.5">
+                                    {[1, 2, 3, 4, 5].map((star) => (
+                                      <Star
+                                        key={star}
+                                        className={`w-3.5 h-3.5 ${
+                                          star <= alert.responder_rating!
+                                            ? 'text-yellow-400 fill-yellow-400'
+                                            : 'text-gray-300'
+                                        }`}
+                                      />
+                                    ))}
+                                  </div>
+                                  <span className="text-xs text-yellow-600 font-bold">{alert.responder_rating}/5</span>
                                 </div>
                               )}
                               {isNewestLive && (
