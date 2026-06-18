@@ -1,7 +1,8 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
 
-const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined;
+// VAPID public key is safe to embed in client code; it is sent to the browser anyway.
+const VAPID_PUBLIC_KEY = 'BK3jmyOoQ_4QYamsN3QouCGJUFmNFYCoqAolV-suSEoDE1SMGX3AoEUg3u6PwRokbVXT8MeYSCKS7bUJvvzsgWI';
 
 export type PushPermission = 'unsupported' | 'default' | 'granted' | 'denied' | 'loading';
 
@@ -50,9 +51,7 @@ export function PushNotificationProvider({ children }: { children: ReactNode }) 
   const [subscribing, setSubscribing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Single SW registration shared across all consumers
   const swRegRef = useRef<ServiceWorkerRegistration | null>(null);
-  // Promise that resolves once SW is ready — lets subscribe() await it
   const swReadyRef = useRef<Promise<ServiceWorkerRegistration> | null>(null);
 
   useEffect(() => {
@@ -62,12 +61,9 @@ export function PushNotificationProvider({ children }: { children: ReactNode }) 
       try {
         const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
         swRegRef.current = reg;
-
         setPermission(Notification.permission as PushPermission);
-
         const existing = await reg.pushManager.getSubscription();
         setIsSubscribed(!!existing);
-
         return reg;
       } catch (err) {
         console.error('[Push] SW registration failed:', err);
@@ -79,7 +75,6 @@ export function PushNotificationProvider({ children }: { children: ReactNode }) 
     swReadyRef.current = swPromise;
   }, [isSupported]);
 
-  // Listen for permission changes (Firefox fires this; Chrome requires explicit check)
   useEffect(() => {
     if (!isSupported || !('permissions' in navigator)) return;
     navigator.permissions.query({ name: 'notifications' as PermissionName }).then((status) => {
@@ -94,9 +89,9 @@ export function PushNotificationProvider({ children }: { children: ReactNode }) 
       setErrorMessage('Push notifications are not supported in this browser.');
       return false;
     }
-    if (!VAPID_PUBLIC_KEY) {
-      setErrorMessage('Push configuration error (VAPID key missing). Contact support.');
-      console.error('[Push] VITE_VAPID_PUBLIC_KEY is not set');
+    if (!VAPID_PUBLIC_KEY || VAPID_PUBLIC_KEY === 'undefined') {
+      setErrorMessage('Push configuration error (VAPID key missing). Please reload the page.');
+      console.error('[Push] VAPID_PUBLIC_KEY is not available');
       return false;
     }
 
@@ -104,7 +99,6 @@ export function PushNotificationProvider({ children }: { children: ReactNode }) 
     setErrorMessage(null);
 
     try {
-      // Wait for SW to be ready (handles the case where user clicks before async init finishes)
       let reg = swRegRef.current;
       if (!reg && swReadyRef.current) {
         try {
@@ -119,7 +113,6 @@ export function PushNotificationProvider({ children }: { children: ReactNode }) 
         return false;
       }
 
-      // Request notification permission
       const perm = await Notification.requestPermission();
       setPermission(perm as PushPermission);
 
@@ -132,7 +125,6 @@ export function PushNotificationProvider({ children }: { children: ReactNode }) 
         return false;
       }
 
-      // Subscribe to Web Push
       let sub = await reg.pushManager.getSubscription();
       if (!sub) {
         sub = await reg.pushManager.subscribe({
@@ -141,7 +133,6 @@ export function PushNotificationProvider({ children }: { children: ReactNode }) 
         });
       }
 
-      // Persist subscription to Supabase
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         setErrorMessage('You must be logged in to enable notifications.');
@@ -175,7 +166,6 @@ export function PushNotificationProvider({ children }: { children: ReactNode }) 
       return true;
     } catch (err: any) {
       console.error('[Push] subscribe error:', err);
-      // DOMException from pushManager.subscribe when user dismissed the prompt
       if (err?.name === 'NotAllowedError') {
         setErrorMessage('Notifications were dismissed. Please try again and tap "Allow".');
       } else {
