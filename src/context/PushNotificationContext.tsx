@@ -59,7 +59,23 @@ export function PushNotificationProvider({ children }: { children: ReactNode }) 
 
     const swPromise = (async () => {
       try {
-        const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+        // Check if there's already a registration
+        let reg = await navigator.serviceWorker.getRegistration('/');
+
+        if (!reg) {
+          // Register the service worker
+          reg = await navigator.serviceWorker.register('/sw.js', {
+            scope: '/',
+            type: 'classic'
+          });
+          console.log('[Push] Service worker registered:', reg.scope);
+        } else {
+          console.log('[Push] Service worker already registered:', reg.scope);
+        }
+
+        // Wait for the service worker to be ready
+        await navigator.serviceWorker.ready;
+
         swRegRef.current = reg;
         setPermission(Notification.permission as PushPermission);
         const existing = await reg.pushManager.getSubscription();

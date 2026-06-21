@@ -1,7 +1,11 @@
 /* SafeSync Emergency Alert Service Worker */
 
-self.addEventListener('install', () => {
-  self.skipWaiting();
+const CACHE_NAME = 'safesync-v1';
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (event) => {
@@ -20,8 +24,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'EMERGENCY ALERT';
   const options = {
     body: data.body || 'Tap to respond to the emergency.',
-    icon: '/icon-192.png',
-    badge: '/icon-192.png',
+    icon: data.emergencyType === 'FIRE' ? 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23f97316"><path d="M12 23c-3.866 0-7-3.134-7-7 0-2.857 1.667-5.333 4-6.536V7c0-2.76 2.24-5 5-5s5 2.24 5 5v2.464c2.333 1.203 4 3.679 4 6.536 0 3.866-3.134 7-7 7z"/></svg>' : data.emergencyType === 'MEDICAL' ? 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23ef4444"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/></svg>' : 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23a855f7"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>',
+    badge: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23dc2626"><circle cx="12" cy="12" r="10"/></svg>',
     tag: `alert-${data.alertId || 'unknown'}`,
     renotify: true,
     requireInteraction: true,
