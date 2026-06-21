@@ -1,4 +1,4 @@
-import { CircleCheck as CheckCircle, Clock, Phone, X, ShieldAlert, Navigation, Hop as Home, Map as MapIcon, Bell, Settings, Loader as Loader2 } from 'lucide-react';
+import { CircleCheck as CheckCircle, Clock, Phone, X, ShieldAlert, Navigation, Hop as Home, Map as MapIcon, Bell, Settings, Loader as Loader2, Flame, HeartPulse, Layers } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { APIProvider, Map, AdvancedMarker } from '@vis.gl/react-google-maps';
 import { supabase } from '../lib/supabase';
@@ -234,11 +234,27 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
         )}
         <div className="flex-grow p-4">
           <div className="text-center mb-4">
-            <div className={`inline-flex p-3 rounded-full ${darkMode ? 'bg-red-950/50 border-red-900/50' : 'bg-red-100 border-red-200'} border mb-2`}>
-                <Navigation className="w-8 h-8 text-red-500" />
+            <div className={`inline-flex p-3 rounded-full ${
+              alertData?.emergency_type === 'FIRE'
+                ? 'bg-orange-100 border-orange-200'
+                : alertData?.emergency_type === 'MEDICAL'
+                ? 'bg-red-100 border-red-200'
+                : 'bg-purple-100 border-purple-200'
+            } border mb-2`}>
+              {alertData?.emergency_type === 'FIRE' ? (
+                <Flame className="w-8 h-8 text-orange-500" />
+              ) : alertData?.emergency_type === 'MEDICAL' ? (
+                <HeartPulse className="w-8 h-8 text-red-500" />
+              ) : (
+                <Layers className="w-8 h-8 text-purple-500" />
+              )}
             </div>
             <h1 className="text-2xl font-bold text-red-500 tracking-tight uppercase">
-                {emergencyType || alertData?.emergency_type || 'Emergency'} Alert Confirmed
+              {alertData?.emergency_type === 'FIRE'
+                ? 'Fire'
+                : alertData?.emergency_type === 'MEDICAL'
+                ? 'Medical'
+                : 'Other Catastrophies'} Alert Confirmed
             </h1>
             <p className={`${darkMode ? 'text-gray-400' : 'text-gray-600'} text-sm`}>
                 Help is arriving at your venue.

@@ -1,4 +1,4 @@
-import { User, Flame, HeartPulse, Save, Loader, Volume2, VolumeX, Bell, BellRing, BellOff, ShieldCheck } from 'lucide-react';
+import { User, Flame, HeartPulse, Save, Loader, Volume2, VolumeX, Bell, BellRing, BellOff, ShieldCheck, UserPlus, Users } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { supabase } from '../lib/supabase';
@@ -10,6 +10,7 @@ interface ProfileData {
   email: string;
   phone: string;
   response_types: string[];
+  invited_by: string | null;
 }
 
 const SOUND_PREF_KEY = 'safesync_responder_sound_enabled';
@@ -31,10 +32,20 @@ export function ReceiverSettings() {
 
   const [soundEnabled, setSoundEnabled] = useState<boolean>(() => getResponderSoundEnabled());
   const [audioUnlocked, setAudioUnlocked] = useState(false);
-  const [profile, setProfile] = useState<ProfileData>({ name: '', email: '', phone: '', response_types: [] });
+  const [profile, setProfile] = useState<ProfileData>({ name: '', email: '', phone: '', response_types: [], invited_by: null });
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Account management state
+  const [showAddUser, setShowAddUser] = useState(false);
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserPassword, setNewUserPassword] = useState('');
+  const [newUserName, setNewUserName] = useState('');
+  const [addingUser, setAddingUser] = useState(false);
+  const [addUserError, setAddUserError] = useState<string | null>(null);
+  const [addUserSuccess, setAddUserSuccess] = useState<string | null>(null);
+  const [invitedUsers, setInvitedUsers] = useState<{ id: string; name: string; email: string; created_at: string }[]>([]);
 
   useEffect(() => {
     setAudioUnlocked(isAudioUnlocked());
@@ -70,7 +81,7 @@ export function ReceiverSettings() {
 
         const { data, error } = await supabase
           .from('profiles')
-          .select('name, email, phone, response_types')
+          .select('name, email, phone, response_types, invited_by')
           .eq('id', user.id)
           .maybeSingle();
 
@@ -81,7 +92,17 @@ export function ReceiverSettings() {
             email: data.email || '',
             phone: data.phone || '',
             response_types: data.response_types || [],
+            invited_by: data.invited_by || null,
           });
+
+          // Fetch invited users if this user can add others
+          if (!data.invited_by) {
+            const { data: invited } = await supabase
+              .from('profiles')
+              .select('id, name, email, created_at')
+              .eq('invited_by', user.id);
+            if (invited) setInvitedUsers(invited);
+          }
         }
       } catch (err) {
         console.error('Failed to load profile:', err);
@@ -434,6 +455,217 @@ export function ReceiverSettings() {
             </button>
           </div>
         </div>
+
+        {/* Account Management - Only for responders who weren't invited */}
+        {!profile.invited_by && (
+          <div className={`border rounded-xl p-6 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Users className="w-5 h-5" />
+                <span className="font-bold">Account Management</span>
+              </div>
+              <button
+                onClick={() => setShowAddUser(!showAddUser)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${
+                  showAddUser
+                    ? 'bg-gray-200 text-gray-700'
+                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                }`}
+              >
+                <UserPlus className="w-4 h-4" />
+                {showAddUser ? 'Cancel' : 'Add User'}
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-500 mb-4">
+              Add new responder users to your organization. They will log in with the email and password you provide.
+            </p>
+
+            {/* Add User Form */}
+            {showAddUser && (
+              <div className={`p-4 rounded-lg border mb-4 ${darkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold mb-1 text-gray-500">Full Name</label>
+                    <input
+                      type="text"
+                      value={newUserName}
+                      onChange={(e) => setNewUserName(e.target.value)}
+                      placeholder="Enter their name"
+                      className={`w-full p-2.5 rounded-lg border text-sm ${darkMode ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white border-gray-300 text-black'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold mb-1 text-gray-500">Email</label>
+                    <input
+                      type="email"
+                      value={newUserEmail}
+                      onChange={(e) => setNewUserEmail(e.target.value)}
+                      placeholder="responder@email.com"
+                      className={`w-full p-2.5 rounded-lg border text-sm ${darkMode ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white border-gray-300 text-black'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold mb-1 text-gray-500">Password</label>
+                    <input
+                      type="password"
+                      value={newUserPassword}
+                      onChange={(e) => setNewUserPassword(e.target.value)}
+                      placeholder="Set a password for them"
+                      className={`w-full p-2.5 rounded-lg border text-sm ${darkMode ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white border-gray-300 text-black'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                    />
+                  </div>
+
+                  {addUserError && (
+                    <p className="text-red-500 text-xs">{addUserError}</p>
+                  )}
+                  {addUserSuccess && (
+                    <p className="text-green-500 text-xs">{addUserSuccess}</p>
+                  )}
+
+                  <button
+                    onClick={async () => {
+                      setAddingUser(true);
+                      setAddUserError(null);
+                      setAddUserSuccess(null);
+
+                      if (!newUserEmail.trim() || !newUserPassword.trim() || !newUserName.trim()) {
+                        setAddUserError('Please fill in all fields.');
+                        setAddingUser(false);
+                        return;
+                      }
+
+                      if (newUserPassword.length < 6) {
+                        setAddUserError('Password must be at least 6 characters.');
+                        setAddingUser(false);
+                        return;
+                      }
+
+                      try {
+                        const { data: { user: currentUser } } = await supabase.auth.getUser();
+                        if (!currentUser) {
+                          setAddUserError('Not authenticated.');
+                          return;
+                        }
+
+                        // Sign up the new user using admin edge function
+                        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+                        const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+
+                        // First, sign up the user with Supabase auth
+                        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+                          email: newUserEmail.trim(),
+                          password: newUserPassword.trim(),
+                          options: {
+                            data: {
+                              name: newUserName.trim(),
+                              user_type: 'Responder',
+                            },
+                          },
+                        });
+
+                        if (signUpError) {
+                          setAddUserError(signUpError.message);
+                          return;
+                        }
+
+                        if (!signUpData.user) {
+                          setAddUserError('Failed to create user.');
+                          return;
+                        }
+
+                        // Update the profile with invited_by
+                        const { error: profileError } = await supabase
+                          .from('profiles')
+                          .update({
+                            invited_by: currentUser.id,
+                            name: newUserName.trim(),
+                          })
+                          .eq('id', signUpData.user.id);
+
+                        if (profileError) {
+                          console.error('Failed to update profile:', profileError);
+                          setAddUserError('User created but failed to link to your account.');
+                          return;
+                        }
+
+                        setAddUserSuccess(`User "${newUserName.trim()}" created successfully!`);
+                        setNewUserName('');
+                        setNewUserEmail('');
+                        setNewUserPassword('');
+                        setShowAddUser(false);
+
+                        // Refresh invited users list
+                        const { data: invited } = await supabase
+                          .from('profiles')
+                          .select('id, name, email, created_at')
+                          .eq('invited_by', currentUser.id);
+                        if (invited) setInvitedUsers(invited);
+                      } catch (err: any) {
+                        console.error('Failed to add user:', err);
+                        setAddUserError(err.message || 'Failed to add user.');
+                      } finally {
+                        setAddingUser(false);
+                      }
+                    }}
+                    disabled={addingUser}
+                    className={`w-full flex items-center justify-center gap-2 p-2.5 rounded-lg font-bold text-sm transition-colors ${
+                      addingUser
+                        ? 'bg-gray-400 cursor-not-allowed'
+                        : 'bg-green-600 hover:bg-green-700 text-white'
+                    }`}
+                  >
+                    {addingUser ? (
+                      <>
+                        <Loader className="w-4 h-4 animate-spin" />
+                        Creating...
+                      </>
+                    ) : (
+                      <>
+                        <UserPlus className="w-4 h-4" />
+                        Create Responder User
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* List of invited users */}
+            {invitedUsers.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Users you've added</p>
+                {invitedUsers.map((user) => (
+                  <div
+                    key={user.id}
+                    className={`flex items-center justify-between p-3 rounded-lg border ${
+                      darkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
+                        <User className="w-4 h-4 text-blue-600" />
+                      </div>
+                      <div>
+                        <p className="font-bold text-sm">{user.name}</p>
+                        <p className="text-xs text-gray-500">{user.email}</p>
+                      </div>
+                    </div>
+                    <span className="text-xs text-gray-400">
+                      Added {new Date(user.created_at).toLocaleDateString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {invitedUsers.length === 0 && !showAddUser && (
+              <p className="text-xs text-gray-500 text-center py-4">
+                You haven't added any users yet.
+              </p>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

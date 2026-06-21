@@ -1,4 +1,4 @@
-import { ArrowLeft, Clock, MapPin, User, Phone, Navigation, Map as MapIcon, Flame, HeartPulse, CircleAlert as AlertCircle, CircleCheck as CheckCircle, Bell, Loader as Loader2, X, MessageSquare, Star } from 'lucide-react';
+import { ArrowLeft, Clock, MapPin, User, Phone, Navigation, Map as MapIcon, Flame, HeartPulse, CircleAlert as AlertCircle, CircleCheck as CheckCircle, Bell, Loader as Loader2, X, MessageSquare, Star, Layers } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
@@ -247,13 +247,13 @@ export function AlertDetailView({ alertId, onBack, onViewMap }: AlertDetailViewP
     ? <Flame className="w-5 h-5 text-orange-500" />
     : alertData.emergency_type === 'MEDICAL'
     ? <HeartPulse className="w-5 h-5 text-red-500" />
-    : <AlertCircle className="w-5 h-5 text-yellow-500" />;
+    : <Layers className="w-5 h-5 text-purple-500" />;
 
   const typeLabel = alertData.emergency_type === 'FIRE'
     ? 'Fire Emergency'
     : alertData.emergency_type === 'MEDICAL'
     ? 'Medical Emergency'
-    : 'Emergency';
+    : 'Other Catastrophies';
 
   const statusConfig = isActive
     ? { label: 'TRANSMITTED', color: 'bg-yellow-50 border-yellow-200 text-yellow-700', icon: <Bell className="w-5 h-5 text-yellow-600" /> }

@@ -1,4 +1,4 @@
-import { MapPin, CircleAlert as AlertCircle, Settings, Bell, Hop as Home, Map as MapIcon, Flame, HeartPulse, Navigation, LogOut, Loader as Loader2, CircleCheck as CheckCircle, Clock, User, Save, TriangleAlert as AlertTriangle, Star } from 'lucide-react';
+import { MapPin, CircleAlert as AlertCircle, Settings, Bell, Hop as Home, Map as MapIcon, Flame, HeartPulse, Navigation, LogOut, Loader as Loader2, CircleCheck as CheckCircle, Clock, User, Save, TriangleAlert as AlertTriangle, Star, Layers } from 'lucide-react';
 import React, { useState, useEffect } from 'react';
 import { AlertSentDashboard } from './AlertSentDashboard';
 import { ClientMap } from './ClientMap';
@@ -30,6 +30,7 @@ interface ClientProfile {
 export function HomeDashboard({ onLogout }: HomeDashboardProps) {
     const [activeTab, setActiveTab] = useState<'home' | 'alerts' | 'map' | 'settings'>('home');
     const [emergencyType, setEmergencyType] = useState<string | null>(null);
+    const [otherDescription, setOtherDescription] = useState('');
     const [isAlertActive, setIsAlertActive] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
@@ -207,6 +208,7 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
         longitude,
         status: 'ACTIVE',
         notified_responder_ids: [],
+        description: emergencyType === 'OTHER' ? otherDescription.trim() : '',
       }).select('id').single();
 
       if (error) throw error;
@@ -385,16 +387,35 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
                   </button>
                   <p className={`${darkMode ? 'text-gray-400' : 'text-gray-600'} text-center mt-6 max-w-xs text-sm font-medium`}>Instantly trigger emergency protocol</p>
                   
-                  <div className="grid grid-cols-2 gap-4 w-full mt-8 max-w-md">
-                      <button onClick={() => setEmergencyType('FIRE')} className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${emergencyType === 'FIRE' ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}>
-                          <Flame className={`w-8 h-8 mb-2 ${emergencyType === 'FIRE' ? 'text-red-500' : 'text-gray-400'}`} />
-                          <span className="font-bold text-xs text-center">Fire Emergency</span>
+                  <div className="grid grid-cols-3 gap-3 w-full mt-8 max-w-md">
+                      <button onClick={() => { setEmergencyType('FIRE'); setOtherDescription(''); }} className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all ${emergencyType === 'FIRE' ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}>
+                          <Flame className={`w-7 h-7 mb-1 ${emergencyType === 'FIRE' ? 'text-red-500' : 'text-gray-400'}`} />
+                          <span className="font-bold text-[10px] text-center">Fire</span>
                       </button>
-                      <button onClick={() => setEmergencyType('MEDICAL')} className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${emergencyType === 'MEDICAL' ? 'border-blue-500 bg-blue-50' : 'border-gray-200'}`}>
-                          <HeartPulse className={`w-8 h-8 mb-2 ${emergencyType === 'MEDICAL' ? 'text-blue-500' : 'text-gray-400'}`} />
-                          <span className="font-bold text-xs text-center">Medical Emergency</span>
+                      <button onClick={() => { setEmergencyType('MEDICAL'); setOtherDescription(''); }} className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all ${emergencyType === 'MEDICAL' ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}>
+                          <HeartPulse className={`w-7 h-7 mb-1 ${emergencyType === 'MEDICAL' ? 'text-red-500' : 'text-gray-400'}`} />
+                          <span className="font-bold text-[10px] text-center">Medical</span>
+                      </button>
+                      <button onClick={() => { setEmergencyType('OTHER'); }} className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all ${emergencyType === 'OTHER' ? 'border-purple-500 bg-purple-50' : 'border-gray-200'}`}>
+                          <Layers className={`w-7 h-7 mb-1 ${emergencyType === 'OTHER' ? 'text-purple-500' : 'text-gray-400'}`} />
+                          <span className="font-bold text-[10px] text-center">Other</span>
                       </button>
                   </div>
+
+                  {/* Other emergency description - Mobile */}
+                  {emergencyType === 'OTHER' && (
+                    <div className="w-full mt-4 max-w-md">
+                      <label className="block text-xs font-bold mb-1 text-gray-600">Describe your emergency</label>
+                      <textarea
+                        value={otherDescription}
+                        onChange={(e) => setOtherDescription(e.target.value)}
+                        placeholder="Describe the nature of your emergency..."
+                        rows={3}
+                        className="w-full p-3 rounded-lg border text-sm resize-none focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      />
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-2 gap-4 w-full mt-8 max-w-md">
                       <div className={`border p-4 rounded-xl text-center shadow-sm ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`}>
                           <p className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Status</p>
@@ -446,16 +467,34 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
                   </button>
                   <p className={`${darkMode ? 'text-gray-400' : 'text-gray-600'} text-center mt-6 max-w-xs text-sm font-medium`}>Instantly trigger emergency protocol</p>
                   
-                  <div className="grid grid-cols-2 gap-4 w-full mt-8 max-w-md">
-                      <button onClick={() => setEmergencyType('FIRE')} className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${emergencyType === 'FIRE' ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}>
-                          <Flame className={`w-8 h-8 mb-2 ${emergencyType === 'FIRE' ? 'text-red-500' : 'text-gray-400'}`} />
-                          <span className="font-bold text-xs text-center">Fire Emergency</span>
+                  <div className="grid grid-cols-3 gap-3 w-full mt-8 max-w-md">
+                      <button onClick={() => { setEmergencyType('FIRE'); setOtherDescription(''); }} className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all ${emergencyType === 'FIRE' ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}>
+                          <Flame className={`w-7 h-7 mb-1 ${emergencyType === 'FIRE' ? 'text-red-500' : 'text-gray-400'}`} />
+                          <span className="font-bold text-[10px] text-center">Fire</span>
                       </button>
-                      <button onClick={() => setEmergencyType('MEDICAL')} className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${emergencyType === 'MEDICAL' ? 'border-blue-500 bg-blue-50' : 'border-gray-200'}`}>
-                          <HeartPulse className={`w-8 h-8 mb-2 ${emergencyType === 'MEDICAL' ? 'text-blue-500' : 'text-gray-400'}`} />
-                          <span className="font-bold text-xs text-center">Medical Emergency</span>
+                      <button onClick={() => { setEmergencyType('MEDICAL'); setOtherDescription(''); }} className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all ${emergencyType === 'MEDICAL' ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}>
+                          <HeartPulse className={`w-7 h-7 mb-1 ${emergencyType === 'MEDICAL' ? 'text-red-500' : 'text-gray-400'}`} />
+                          <span className="font-bold text-[10px] text-center">Medical</span>
+                      </button>
+                      <button onClick={() => { setEmergencyType('OTHER'); }} className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all ${emergencyType === 'OTHER' ? 'border-purple-500 bg-purple-50' : 'border-gray-200'}`}>
+                          <Layers className={`w-7 h-7 mb-1 ${emergencyType === 'OTHER' ? 'text-purple-500' : 'text-gray-400'}`} />
+                          <span className="font-bold text-[10px] text-center">Other</span>
                       </button>
                   </div>
+
+                  {/* Other emergency description - Desktop */}
+                  {emergencyType === 'OTHER' && (
+                    <div className="w-full mt-4 max-w-md">
+                      <label className="block text-xs font-bold mb-1 text-gray-600">Describe your emergency</label>
+                      <textarea
+                        value={otherDescription}
+                        onChange={(e) => setOtherDescription(e.target.value)}
+                        placeholder="Describe the nature of your emergency..."
+                        rows={3}
+                        className="w-full p-3 rounded-lg border text-sm resize-none focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      />
+                    </div>
+                  )}
               </div>
             </div>
             
@@ -532,7 +571,7 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
                             ? <Flame className="w-5 h-5 text-orange-500" />
                             : alert.emergency_type === 'MEDICAL'
                             ? <HeartPulse className="w-5 h-5 text-red-500" />
-                            : <AlertCircle className="w-5 h-5 text-yellow-500" />;
+                            : <Layers className="w-5 h-5 text-purple-500" />;
 
                           return (
                             <button
@@ -547,7 +586,7 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
                                   </div>
                                   <div className="text-left">
                                     <span className="font-bold text-sm uppercase tracking-wide block">
-                                      {alert.emergency_type === 'FIRE' ? 'Fire Emergency' : alert.emergency_type === 'MEDICAL' ? 'Medical Emergency' : 'Emergency'}
+                                      {alert.emergency_type === 'FIRE' ? 'Fire Emergency' : alert.emergency_type === 'MEDICAL' ? 'Medical Emergency' : 'Other Catastrophies'}
                                     </span>
                                     <span className="text-xs text-gray-500">
                                       {new Date(alert.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}

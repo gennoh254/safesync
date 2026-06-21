@@ -1,4 +1,4 @@
-import { MapPin, Clock, TriangleAlert as AlertTriangle, Flame, HeartPulse, Info, Loader as Loader2, Volume2, Volume1, Zap, CircleCheck as CheckCircle, X, Navigation, History, Star } from 'lucide-react';
+import { MapPin, Clock, TriangleAlert as AlertTriangle, Flame, HeartPulse, Info, Loader as Loader2, Volume2, Volume1, Zap, CircleCheck as CheckCircle, X, Navigation, History, Star, Layers } from 'lucide-react';
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { getAudioCtx } from '../hooks/useEmergencyAlert';
@@ -196,13 +196,13 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
   const getPriority = (emergencyType: string) => {
     if (emergencyType === 'MEDICAL') return { label: 'Critical', color: 'bg-red-500 text-white' };
     if (emergencyType === 'FIRE') return { label: 'High', color: 'bg-orange-500 text-white' };
-    return { label: 'Medium', color: 'bg-yellow-500 text-black' };
+    return { label: 'Medium', color: 'bg-purple-500 text-white' };
   };
 
   const getIcon = (emergencyType: string) => {
     if (emergencyType === 'FIRE') return <Flame className="w-5 h-5 text-orange-500" />;
     if (emergencyType === 'MEDICAL') return <HeartPulse className="w-5 h-5 text-red-500" />;
-    return <AlertTriangle className="w-5 h-5 text-yellow-500" />;
+    return <Layers className="w-5 h-5 text-purple-500" />;
   };
 
   const getStatusConfig = (status: string) => {
@@ -341,7 +341,7 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
                     <div className="flex items-center gap-3 mb-4">
                       {getIcon(alert.emergency_type)}
                       <h3 className="font-bold text-lg text-slate-900 tracking-tight">
-                        {alert.emergency_type === 'FIRE' ? 'Building Fire' : alert.emergency_type === 'MEDICAL' ? 'Medical Emergency' : 'Emergency'}
+                        {alert.emergency_type === 'FIRE' ? 'Building Fire' : alert.emergency_type === 'MEDICAL' ? 'Medical Emergency' : 'Other Catastrophies'}
                       </h3>
                     </div>
 
@@ -417,7 +417,7 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
                             ? 'bg-orange-100'
                             : alert.emergency_type === 'MEDICAL'
                             ? 'bg-red-100'
-                            : 'bg-yellow-100'
+                            : 'bg-purple-100'
                         }`}>
                           {getIcon(alert.emergency_type)}
                         </div>
@@ -427,7 +427,7 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
                               ? 'Fire Emergency'
                               : alert.emergency_type === 'MEDICAL'
                               ? 'Medical Emergency'
-                              : 'Emergency'}
+                              : 'Other Catastrophies'}
                           </h3>
                           <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
                             <Clock className="w-3 h-3" />

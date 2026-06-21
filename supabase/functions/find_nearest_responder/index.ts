@@ -119,13 +119,16 @@ Deno.serve(async (req: Request) => {
     console.log("Found available responders:", responders?.length || 0);
 
     // Filter by response type and excluded IDs
+    // OTHER emergencies are routed to FIRE responders
+    const effectiveEmergencyType = alertData.emergency_type === 'OTHER' ? 'FIRE' : alertData.emergency_type;
+
     const eligibleResponders = (responders as Responder[]).filter((r) => {
       // Exclude already notified responders
       if (excludeResponderIds.includes(r.id)) return false;
 
       // Check if responder handles this emergency type
       if (r.response_types && r.response_types.length > 0) {
-        return r.response_types.includes(alertData.emergency_type);
+        return r.response_types.includes(effectiveEmergencyType);
       }
       // If no response types set, allow them (fallback)
       return true;

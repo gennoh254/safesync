@@ -1,4 +1,4 @@
-import { Flame, HeartPulse, MapPin, Clock, Phone, X, CircleCheck as CheckCircle, Volume2, VolumeX } from 'lucide-react';
+import { Flame, HeartPulse, MapPin, Clock, Phone, X, CircleCheck as CheckCircle, Volume2, VolumeX, Layers } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useEmergencyAlert } from '../hooks/useEmergencyAlert';
 
@@ -109,7 +109,7 @@ export function IncomingAlertOverlay({
       case 'MEDICAL':
         return <HeartPulse className="w-20 h-20 text-red-500" />;
       default:
-        return <Phone className="w-20 h-20 text-blue-500" />;
+        return <Layers className="w-20 h-20 text-purple-500" />;
     }
   };
 
@@ -120,7 +120,7 @@ export function IncomingAlertOverlay({
       case 'MEDICAL':
         return { title: 'MEDICAL EMERGENCY', subtitle: 'Medical Assistance Required', color: 'text-red-500', bgColor: 'from-red-600 to-rose-600' };
       default:
-        return { title: 'EMERGENCY', subtitle: 'Assistance Required', color: 'text-blue-500', bgColor: 'from-blue-600 to-indigo-600' };
+        return { title: 'OTHER CATASTROPHIES', subtitle: 'Emergency Assistance Required', color: 'text-purple-500', bgColor: 'from-purple-600 to-indigo-600' };
     }
   };
 
