@@ -3,6 +3,7 @@ import { AuthForm, AccountType } from './components/LoginForm';
 import { PasswordRecovery } from './components/PasswordRecovery';
 import { HomeDashboard } from './components/HomeDashboard';
 import { ReceiverLayout } from './components/ReceiverLayout';
+import { AdminLayout } from './components/AdminLayout';
 import { AlertProvider } from './context/AlertContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { PushNotificationProvider } from './context/PushNotificationContext';
@@ -10,9 +11,11 @@ import { Header } from './components/Header';
 import { FooterStatusBar } from './components/Footer';
 import { supabase } from './lib/supabase';
 
+type AppView = 'login' | 'recovery' | 'admin';
+
 export default function App() {
   const [userType, setUserType] = useState<AccountType | null>(null);
-  const [authView, setAuthView] = useState<'login' | 'recovery'>('login');
+  const [authView, setAuthView] = useState<AppView>('login');
   const [initializing, setInitializing] = useState(true);
 
   // Listen for auth state changes (handles session restore, login, logout)
@@ -71,6 +74,15 @@ export default function App() {
     setAuthView('login');
   };
 
+  // Admin portal view (no auth required)
+  if (authView === 'admin') {
+    return (
+      <ThemeProvider>
+        <AdminLayout onExit={() => setAuthView('login')} />
+      </ThemeProvider>
+    );
+  }
+
   if (initializing) {
     return (
       <ThemeProvider>
@@ -94,6 +106,7 @@ export default function App() {
                 <AuthForm
                   onAuthenticate={(type) => setUserType(type)}
                   onRecoverPassword={() => setAuthView('recovery')}
+                  onAdminPortal={() => setAuthView('admin')}
                 />
               ) : (
                 <PasswordRecovery
@@ -108,6 +121,8 @@ export default function App() {
           <div className="flex flex-col min-h-screen bg-white text-black items-center justify-center">
             {userType === 'Client' ? (
               <HomeDashboard onLogout={handleLogout} />
+            ) : userType === 'Administrator' ? (
+              <AdminLayout onExit={handleLogout} />
             ) : (
               <ReceiverLayout onLogout={handleLogout} />
             )}

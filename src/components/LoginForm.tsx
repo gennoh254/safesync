@@ -1,15 +1,15 @@
-import { KeyRound, ShieldCheck, User, Mail, Building, Eye, EyeOff, Loader as Loader2 } from 'lucide-react';
+import { KeyRound, ShieldCheck, Eye, EyeOff, Loader as Loader2, Building } from 'lucide-react';
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabase';
 
 export type AccountType = 'Client' | 'Responder' | 'Administrator';
 
-export function AuthForm({ onAuthenticate, onRecoverPassword }: { onAuthenticate: (type: AccountType) => void, onRecoverPassword: () => void }) {
+export function AuthForm({ onAuthenticate, onRecoverPassword, onAdminPortal }: { onAuthenticate: (type: AccountType) => void, onRecoverPassword: () => void, onAdminPortal: () => void }) {
   const [mode, setMode] = useState<'Login' | 'Signup'>('Login');
   const [pin, setPin] = useState('');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [company, setCompany] = useState('');
+  const [organizationName, setOrganizationName] = useState('');
   const [accountType, setAccountType] = useState<AccountType>('Client');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -53,7 +53,7 @@ export function AuthForm({ onAuthenticate, onRecoverPassword }: { onAuthenticate
             name: name.trim(),
             email: email.trim(),
             user_type: accountType,
-            company: company.trim() || null,
+            organization_name: accountType === 'Responder' ? organizationName.trim() : '',
           });
 
           if (profileError) {
@@ -63,7 +63,7 @@ export function AuthForm({ onAuthenticate, onRecoverPassword }: { onAuthenticate
 
         onAuthenticate(accountType);
       } else {
-        // Login
+        // Login - only email and password
         const { data, error: loginError } = await supabase.auth.signInWithPassword({
           email: email.trim(),
           password: pin,
@@ -85,47 +85,6 @@ export function AuthForm({ onAuthenticate, onRecoverPassword }: { onAuthenticate
 
           onAuthenticate((profile?.user_type as AccountType) || 'Client');
         }
-      }
-    } catch (err: any) {
-      setError(err.message || 'An error occurred');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleAdminLogin = async () => {
-    setError(null);
-    setLoading(true);
-
-    try {
-      const { data, error: loginError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password: pin,
-      });
-
-      if (loginError) {
-        setError(loginError.message);
-        setLoading(false);
-        return;
-      }
-
-      if (data.user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('user_type')
-          .eq('id', data.user.id)
-          .maybeSingle();
-
-        const userType = (profile?.user_type as AccountType) || 'Client';
-
-        if (userType !== 'Administrator') {
-          setError('Access denied. Admin privileges required.');
-          await supabase.auth.signOut();
-          setLoading(false);
-          return;
-        }
-
-        onAuthenticate('Administrator');
       }
     } catch (err: any) {
       setError(err.message || 'An error occurred');
@@ -208,30 +167,38 @@ export function AuthForm({ onAuthenticate, onRecoverPassword }: { onAuthenticate
         </div>
 
         {mode === 'Signup' && (
-          <div className="space-y-2">
-              <label className="text-sm text-gray-900 font-medium">Company/Organization (Optional)</label>
-              <input
-                  className="w-full h-12 px-4 bg-white border border-gray-300 text-gray-900 rounded-none focus:border-red-600 outline-none disabled:opacity-50"
-                  placeholder="Company name"
-                  value={company}
-                  onChange={(e) => setCompany(e.target.value)}
-                  disabled={loading}
-              />
-          </div>
-        )}
+          <>
+            <div className="space-y-2">
+                <label className="text-sm text-gray-900 font-medium">Account Type</label>
+                <select
+                    className="w-full h-12 px-4 bg-white border border-gray-300 text-gray-900 rounded-none focus:border-red-600 outline-none disabled:opacity-50"
+                    value={accountType}
+                    onChange={(e) => setAccountType(e.target.value as AccountType)}
+                    disabled={loading}
+                >
+                    <option value="Client">Client</option>
+                    <option value="Responder">Responder</option>
+                </select>
+            </div>
 
-        <div className="space-y-2">
-            <label className="text-sm text-gray-900 font-medium">Account Type</label>
-            <select
-                className="w-full h-12 px-4 bg-white border border-gray-300 text-gray-900 rounded-none focus:border-red-600 outline-none disabled:opacity-50"
-                value={accountType}
-                onChange={(e) => setAccountType(e.target.value as AccountType)}
-                disabled={loading}
-            >
-                <option value="Client">Client</option>
-                <option value="Responder">Responder</option>
-            </select>
-        </div>
+            {accountType === 'Responder' && (
+              <div className="space-y-2">
+                  <label className="text-sm text-gray-900 font-medium">Organization Name</label>
+                  <div className="relative">
+                    <Building className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
+                    <input
+                        className="w-full h-12 pl-10 px-4 bg-white border border-gray-300 text-gray-900 rounded-none focus:border-red-600 outline-none disabled:opacity-50"
+                        placeholder="Your organization/company name"
+                        value={organizationName}
+                        onChange={(e) => setOrganizationName(e.target.value)}
+                        disabled={loading}
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500">This will be displayed as your organization name</p>
+              </div>
+            )}
+          </>
+        )}
 
         {mode === 'Login' && (
             <div className="text-sm">
@@ -261,18 +228,17 @@ export function AuthForm({ onAuthenticate, onRecoverPassword }: { onAuthenticate
             </button>
         </p>
 
-        <div className="text-center mt-6">
-            <button
-              type="button"
-              onClick={handleAdminLogin}
-              className="text-xs text-gray-500 hover:text-red-500 disabled:opacity-50"
-              disabled={loading}
-            >
-              Administrative Portal
-            </button>
+        <div className="border-t border-gray-200 pt-4 mt-4">
+          <button
+            type="button"
+            onClick={onAdminPortal}
+            className="w-full py-3 text-sm font-bold text-gray-500 hover:text-red-600 hover:bg-gray-50 transition-colors flex items-center justify-center gap-2"
+            disabled={loading}
+          >
+            <ShieldCheck className="w-4 h-4" />
+            Administrative Portal
+          </button>
         </div>
-
-
       </form>
     </div>
   );

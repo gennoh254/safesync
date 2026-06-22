@@ -11,6 +11,7 @@ interface ProfileData {
   phone: string;
   response_types: string[];
   invited_by: string | null;
+  organization_name: string;
 }
 
 const SOUND_PREF_KEY = 'safesync_responder_sound_enabled';
@@ -32,7 +33,7 @@ export function ReceiverSettings() {
 
   const [soundEnabled, setSoundEnabled] = useState<boolean>(() => getResponderSoundEnabled());
   const [audioUnlocked, setAudioUnlocked] = useState(false);
-  const [profile, setProfile] = useState<ProfileData>({ name: '', email: '', phone: '', response_types: [], invited_by: null });
+  const [profile, setProfile] = useState<ProfileData>({ name: '', email: '', phone: '', response_types: [], invited_by: null, organization_name: '' });
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -81,7 +82,7 @@ export function ReceiverSettings() {
 
         const { data, error } = await supabase
           .from('profiles')
-          .select('name, email, phone, response_types, invited_by')
+          .select('name, email, phone, response_types, invited_by, organization_name')
           .eq('id', user.id)
           .maybeSingle();
 
@@ -93,6 +94,7 @@ export function ReceiverSettings() {
             phone: data.phone || '',
             response_types: data.response_types || [],
             invited_by: data.invited_by || null,
+            organization_name: data.organization_name || '',
           });
 
           // Fetch invited users if this user can add others
@@ -233,6 +235,22 @@ export function ReceiverSettings() {
               />
               <p className="text-xs text-gray-400 mt-1">From your signup account</p>
             </div>
+
+            {/* Organization - read only */}
+            {(profile.organization_name || profile.invited_by) && (
+              <div>
+                <label className="block text-sm font-bold mb-1 text-gray-500">Organization</label>
+                <input
+                  type="text"
+                  value={profile.organization_name || 'N/A'}
+                  disabled
+                  className={`w-full p-3 rounded-lg border text-sm ${darkMode ? 'bg-gray-700 border-gray-600 text-gray-400' : 'bg-gray-100 border-gray-200 text-gray-500'} cursor-not-allowed`}
+                />
+                {profile.invited_by && (
+                  <p className="text-xs text-gray-400 mt-1">You are a member of this organization</p>
+                )}
+              </div>
+            )}
 
             {/* Email - read only */}
             <div>
@@ -574,12 +592,13 @@ export function ReceiverSettings() {
                           return;
                         }
 
-                        // Update the profile with invited_by
+                        // Update the profile with invited_by and organization_name
                         const { error: profileError } = await supabase
                           .from('profiles')
                           .update({
                             invited_by: currentUser.id,
                             name: newUserName.trim(),
+                            organization_name: profile.organization_name,
                           })
                           .eq('id', signUpData.user.id);
 

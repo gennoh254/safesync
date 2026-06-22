@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, Map, ClipboardList, Settings, LogOut } from 'lucide-react';
+import { LayoutDashboard, Users, Map, ClipboardList, Settings, LogOut, ArrowLeft } from 'lucide-react';
 import React, { useState } from 'react';
 import { AdminDashboard } from './AdminDashboard';
 import { AdminUserManagement } from './AdminUserManagement';
@@ -8,10 +8,10 @@ import { AdminSettings } from './AdminSettings';
 import { useTheme } from '../context/ThemeContext';
 
 interface AdminLayoutProps {
-  onLogout: () => void;
+  onExit: () => void;
 }
 
-export function AdminLayout({ onLogout }: AdminLayoutProps) {
+export function AdminLayout({ onExit }: AdminLayoutProps) {
   const [activeTab, setActiveTab] = useState('dashboard');
   const { theme } = useTheme();
   const darkMode = theme === 'dark';
@@ -28,7 +28,7 @@ export function AdminLayout({ onLogout }: AdminLayoutProps) {
         </nav>
         <nav className="mt-auto space-y-4">
           <button onClick={() => setActiveTab('settings')} className={`flex items-center gap-3 w-full ${activeTab === 'settings' ? 'text-white' : 'text-gray-400'}`}><Settings /> Settings</button>
-          <button onClick={onLogout} className="flex items-center gap-3 w-full text-gray-400 hover:text-white"><LogOut /> Log Out</button>
+          <button onClick={onExit} className="flex items-center gap-3 w-full text-gray-400 hover:text-white"><ArrowLeft /> Back to Login</button>
         </nav>
       </aside>
       <main className="flex-grow p-8 overflow-y-auto">
