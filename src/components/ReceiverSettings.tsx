@@ -47,6 +47,7 @@ export function ReceiverSettings() {
   const [addUserError, setAddUserError] = useState<string | null>(null);
   const [addUserSuccess, setAddUserSuccess] = useState<string | null>(null);
   const [invitedUsers, setInvitedUsers] = useState<{ id: string; name: string; email: string; created_at: string }[]>([]);
+  const [organizationMembers, setOrganizationMembers] = useState<{ id: string; name: string; email: string; created_at: string; is_admin: boolean }[]>([]);
 
   useEffect(() => {
     setAudioUnlocked(isAudioUnlocked());
@@ -97,13 +98,38 @@ export function ReceiverSettings() {
             organization_name: data.organization_name || '',
           });
 
-          // Fetch invited users if this user can add others
+          // Fetch invited users if this user is an admin (can add others)
           if (!data.invited_by) {
             const { data: invited } = await supabase
               .from('profiles')
               .select('id, name, email, created_at')
               .eq('invited_by', user.id);
             if (invited) setInvitedUsers(invited);
+          }
+
+          // Fetch all organization members for both admin and member
+          if (data.organization_name) {
+            // If admin (not invited), get all users with same organization except self
+            // If member (invited), get all users with same organization including the admin who invited them
+            const orgName = data.organization_name;
+            const { data: orgMembers } = await supabase
+              .from('profiles')
+              .select('id, name, email, created_at, invited_by')
+              .eq('organization_name', orgName)
+              .neq('id', user.id);
+
+            if (orgMembers) {
+              const isAdmin = !data.invited_by;
+              setOrganizationMembers(
+                orgMembers.map((m) => ({
+                  id: m.id,
+                  name: m.name,
+                  email: m.email,
+                  created_at: m.created_at,
+                  is_admin: isAdmin && !m.invited_by, // Admin's perspective: users without invited_by are also admins
+                }))
+              );
+            }
           }
         }
       } catch (err) {
@@ -237,18 +263,70 @@ export function ReceiverSettings() {
             </div>
 
             {/* Organization - read only */}
-            {(profile.organization_name || profile.invited_by) && (
+            {profile.organization_name && (
               <div>
                 <label className="block text-sm font-bold mb-1 text-gray-500">Organization</label>
                 <input
                   type="text"
-                  value={profile.organization_name || 'N/A'}
+                  value={profile.organization_name}
                   disabled
                   className={`w-full p-3 rounded-lg border text-sm ${darkMode ? 'bg-gray-700 border-gray-600 text-gray-400' : 'bg-gray-100 border-gray-200 text-gray-500'} cursor-not-allowed`}
                 />
-                {profile.invited_by && (
+                {profile.invited_by ? (
                   <p className="text-xs text-gray-400 mt-1">You are a member of this organization</p>
+                ) : (
+                  <p className="text-xs text-gray-400 mt-1">You are the admin of this organization</p>
                 )}
+              </div>
+            )}
+
+            {/* Organization members list - show for all org members */}
+            {organizationMembers.length > 0 && !profile.invited_by && (
+              <div className={`p-3 rounded-lg border ${darkMode ? 'bg-gray-700 border-gray-600' : 'bg-gray-100 border-gray-200'}`}>
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Organization Members</p>
+                <div className="space-y-2">
+                  {organizationMembers.map((member) => (
+                    <div key={member.id} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">
+                          <User className="w-3 h-3 text-blue-600" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium">{member.name}</p>
+                          <p className="text-xs text-gray-500">{member.email}</p>
+                        </div>
+                      </div>
+                      <span className={`text-xs px-2 py-0.5 rounded ${darkMode ? 'bg-gray-600' : 'bg-gray-200'}`}>
+                        {member.is_admin ? 'Admin' : 'Member'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Show organization members for invited users */}
+            {organizationMembers.length > 0 && profile.invited_by && (
+              <div className={`p-3 rounded-lg border ${darkMode ? 'bg-gray-700 border-gray-600' : 'bg-gray-100 border-gray-200'}`}>
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Organization Members</p>
+                <div className="space-y-2">
+                  {organizationMembers.map((member) => (
+                    <div key={member.id} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">
+                          <User className="w-3 h-3 text-blue-600" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium">{member.name}</p>
+                          <p className="text-xs text-gray-500">{member.email}</p>
+                        </div>
+                      </div>
+                      <span className={`text-xs px-2 py-0.5 rounded ${member.is_admin ? (darkMode ? 'bg-green-900 text-green-400' : 'bg-green-100 text-green-700') : (darkMode ? 'bg-gray-600' : 'bg-gray-200')}`}>
+                        {member.is_admin ? 'Admin' : 'Member'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -578,6 +656,8 @@ export function ReceiverSettings() {
                             data: {
                               name: newUserName.trim(),
                               user_type: 'Responder',
+                              invited_by: currentUser.id,
+                              organization_name: profile.organization_name,
                             },
                           },
                         });
@@ -592,15 +672,20 @@ export function ReceiverSettings() {
                           return;
                         }
 
-                        // Update the profile with invited_by and organization_name
+                        // Create or update the profile with invited_by and organization_name
+                        // Use upsert to handle both creating new profile and updating existing
                         const { error: profileError } = await supabase
                           .from('profiles')
-                          .update({
-                            invited_by: currentUser.id,
+                          .upsert({
+                            id: signUpData.user.id,
                             name: newUserName.trim(),
+                            email: newUserEmail.trim(),
+                            user_type: 'Responder',
+                            invited_by: currentUser.id,
                             organization_name: profile.organization_name,
-                          })
-                          .eq('id', signUpData.user.id);
+                            response_types: [],
+                            phone: '',
+                          }, { onConflict: 'id' });
 
                         if (profileError) {
                           console.error('Failed to update profile:', profileError);
@@ -620,6 +705,26 @@ export function ReceiverSettings() {
                           .select('id, name, email, created_at')
                           .eq('invited_by', currentUser.id);
                         if (invited) setInvitedUsers(invited);
+
+                        // Refresh organization members
+                        if (profile.organization_name) {
+                          const { data: orgMembers } = await supabase
+                            .from('profiles')
+                            .select('id, name, email, created_at, invited_by')
+                            .eq('organization_name', profile.organization_name)
+                            .neq('id', currentUser.id);
+                          if (orgMembers) {
+                            setOrganizationMembers(
+                              orgMembers.map((m) => ({
+                                id: m.id,
+                                name: m.name,
+                                email: m.email,
+                                created_at: m.created_at,
+                                is_admin: !m.invited_by,
+                              }))
+                            );
+                          }
+                        }
                       } catch (err: any) {
                         console.error('Failed to add user:', err);
                         setAddUserError(err.message || 'Failed to add user.');
