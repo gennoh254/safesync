@@ -46,15 +46,17 @@ export function AuthForm({ onAuthenticate, onRecoverPassword, onAdminPortal }: {
           return;
         }
 
-        // Create profile in profiles table
+        // Create profile in profiles table using upsert (handles duplicates)
         if (data.user) {
-          const { error: profileError } = await supabase.from('profiles').insert({
+          const { error: profileError } = await supabase.from('profiles').upsert({
             id: data.user.id,
             name: name.trim(),
             email: email.trim(),
             user_type: accountType,
             organization_name: accountType === 'Responder' ? organizationName.trim() : '',
-          });
+            phone: '',
+            response_types: [],
+          }, { onConflict: 'id' });
 
           if (profileError) {
             console.error('Profile creation error:', profileError);
@@ -83,7 +85,24 @@ export function AuthForm({ onAuthenticate, onRecoverPassword, onAdminPortal }: {
             .eq('id', data.user.id)
             .maybeSingle();
 
-          onAuthenticate((profile?.user_type as AccountType) || 'Client');
+          if (profile?.user_type) {
+            onAuthenticate(profile.user_type as AccountType);
+          } else if (data.user.user_metadata?.user_type) {
+            // Fallback: create missing profile from user metadata
+            const userType = data.user.user_metadata.user_type as AccountType;
+            await supabase.from('profiles').upsert({
+              id: data.user.id,
+              name: data.user.user_metadata.name || '',
+              email: data.user.email || '',
+              user_type: userType,
+              organization_name: data.user.user_metadata.organization_name || '',
+              phone: '',
+              response_types: [],
+            }, { onConflict: 'id' });
+            onAuthenticate(userType);
+          } else {
+            onAuthenticate('Client');
+          }
         }
       }
     } catch (err: any) {

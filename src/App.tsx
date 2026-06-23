@@ -33,6 +33,20 @@ export default function App() {
 
         if (profile && mounted) {
           setUserType(profile.user_type as AccountType);
+        } else if (session.user.user_metadata?.user_type && mounted) {
+          // Fallback to user_metadata if profile doesn't exist
+          // Create missing profile
+          const userType = session.user.user_metadata.user_type as AccountType;
+          await supabase.from('profiles').upsert({
+            id: session.user.id,
+            name: session.user.user_metadata.name || '',
+            email: session.user.email || '',
+            user_type: userType,
+            organization_name: session.user.user_metadata.organization_name || '',
+            phone: '',
+            response_types: [],
+          }, { onConflict: 'id' });
+          setUserType(userType);
         }
       }
       if (mounted) setInitializing(false);
@@ -58,6 +72,20 @@ export default function App() {
 
         if (profile) {
           setUserType(profile.user_type as AccountType);
+        } else if (session.user.user_metadata?.user_type) {
+          // Fallback to user_metadata if profile doesn't exist
+          // Create missing profile
+          const userType = session.user.user_metadata.user_type as AccountType;
+          await supabase.from('profiles').upsert({
+            id: session.user.id,
+            name: session.user.user_metadata.name || '',
+            email: session.user.email || '',
+            user_type: userType,
+            organization_name: session.user.user_metadata.organization_name || '',
+            phone: '',
+            response_types: [],
+          }, { onConflict: 'id' });
+          setUserType(userType);
         }
       }
     });
