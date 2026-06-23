@@ -51,11 +51,12 @@ export function ResponderMap({ darkMode, acceptedAlert, onAlertResolved }: { dar
   const [locationError, setLocationError] = useState<string | null>(null);
   const [selectedAlert, setSelectedAlert] = useState<AlertLocation | null>(acceptedAlert || null);
   const [clientInfo, setClientInfo] = useState<ClientInfo | null>(null);
-  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(null);
-  const [mapZoom, setMapZoom] = useState(14);
+  const [initialCenter, setInitialCenter] = useState<{ lat: number; lng: number } | null>(null);
+  const [initialZoom] = useState(14);
   const [isMapExpanded, setIsMapExpanded] = useState(false);
   const selectedAlertRef = useRef<AlertLocation | null>(acceptedAlert || null);
   const onAlertResolvedRef = useRef(onAlertResolved);
+  const mapRef = useRef<google.maps.Map | null>(null);
 
   // Keep callback ref updated
   useEffect(() => {
@@ -64,23 +65,25 @@ export function ResponderMap({ darkMode, acceptedAlert, onAlertResolved }: { dar
 
   // Recenter on responder location
   const handleRecenterSelf = useCallback(() => {
-    if (responderLocation) {
-      setMapCenter(responderLocation);
-      setMapZoom(15);
+    if (responderLocation && mapRef.current) {
+      mapRef.current.panTo(responderLocation);
+      mapRef.current.setZoom(15);
     }
   }, [responderLocation]);
 
   // Recenter to show both responder and selected alert
   const handleRecenterBoth = useCallback(() => {
-    if (responderLocation && selectedAlert?.latitude && selectedAlert?.longitude) {
+    if (!mapRef.current || !responderLocation) return;
+
+    if (selectedAlert?.latitude && selectedAlert?.longitude) {
       const lat = (responderLocation.lat + selectedAlert.latitude) / 2;
       const lng = (responderLocation.lng + selectedAlert.longitude) / 2;
-      setMapCenter({ lat, lng });
+      mapRef.current.panTo({ lat, lng });
 
       const dist = haversineDistance(responderLocation.lat, responderLocation.lng, selectedAlert.latitude, selectedAlert.longitude);
-      if (dist > 5) setMapZoom(10);
-      else if (dist > 2) setMapZoom(12);
-      else setMapZoom(14);
+      if (dist > 5) mapRef.current.setZoom(10);
+      else if (dist > 2) mapRef.current.setZoom(12);
+      else mapRef.current.setZoom(14);
     } else {
       handleRecenterSelf();
     }
@@ -90,6 +93,19 @@ export function ResponderMap({ darkMode, acceptedAlert, onAlertResolved }: { dar
   useEffect(() => {
     selectedAlertRef.current = selectedAlert;
   }, [selectedAlert]);
+
+  // Set initial center once when location is determined
+  useEffect(() => {
+    if (!responderLocation || initialCenter) return;
+
+    if (selectedAlert?.latitude && selectedAlert?.longitude) {
+      const lat = (responderLocation.lat + selectedAlert.latitude) / 2;
+      const lng = (responderLocation.lng + selectedAlert.longitude) / 2;
+      setInitialCenter({ lat, lng });
+    } else {
+      setInitialCenter(responderLocation);
+    }
+  }, [responderLocation, selectedAlert, initialCenter]);
 
   // Fetch client info when selected alert changes
   useEffect(() => {
@@ -301,10 +317,10 @@ export function ResponderMap({ darkMode, acceptedAlert, onAlertResolved }: { dar
       <div className={`${isMapExpanded ? 'h-[500px]' : 'h-64 lg:h-[450px]'} relative overflow-hidden rounded-lg border border-gray-200 transition-all duration-300`}>
         <APIProvider apiKey={API_KEY} version="weekly">
           <Map
-            center={mapCenter || (selectedAlert?.latitude && selectedAlert?.longitude
+            defaultCenter={initialCenter || (selectedAlert?.latitude && selectedAlert?.longitude
               ? { lat: selectedAlert.latitude, lng: selectedAlert.longitude }
               : responderLocation)}
-            zoom={mapZoom}
+            defaultZoom={initialZoom}
             mapId="RESPONDER_MAP_ID"
             style={{ width: '100%', height: '100%' }}
             gestureHandling="greedy"
@@ -313,6 +329,7 @@ export function ResponderMap({ darkMode, acceptedAlert, onAlertResolved }: { dar
             streetViewControl={false}
             mapTypeControl={true}
             fullscreenControl={true}
+            onIdle={(e) => { mapRef.current = e.map; }}
           >
             {/* Responder marker (self) */}
             <AdvancedMarker position={responderLocation}>

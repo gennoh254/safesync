@@ -39,8 +39,8 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
   const [locationError, setLocationError] = useState<string | null>(null);
   const [activeAlert, setActiveAlert] = useState<any>(null);
   const [activeAlertResponder, setActiveAlertResponder] = useState<ResponderLocation | null>(null);
-  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(null);
-  const [mapZoom, setMapZoom] = useState(14);
+  const [initialCenter, setInitialCenter] = useState<{ lat: number; lng: number } | null>(null);
+  const [initialZoom] = useState(14);
   const [showResponderList, setShowResponderList] = useState(false);
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
@@ -50,26 +50,29 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
   const [hoveredRating, setHoveredRating] = useState(0);
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
   const activeAlertResponderRef = useRef<ResponderLocation | null>(null);
+  const mapRef = useRef<google.maps.Map | null>(null);
 
   // Recenter on client location
   const handleRecenterClient = useCallback(() => {
-    if (clientLocation) {
-      setMapCenter(clientLocation);
-      setMapZoom(15);
+    if (clientLocation && mapRef.current) {
+      mapRef.current.panTo(clientLocation);
+      mapRef.current.setZoom(15);
     }
   }, [clientLocation]);
 
   // Recenter to show both client and responder
   const handleRecenterBoth = useCallback(() => {
-    if (clientLocation && activeAlertResponder?.latitude && activeAlertResponder?.longitude) {
+    if (!mapRef.current || !clientLocation) return;
+
+    if (activeAlertResponder?.latitude && activeAlertResponder?.longitude) {
       const lat = (clientLocation.lat + activeAlertResponder.latitude) / 2;
       const lng = (clientLocation.lng + activeAlertResponder.longitude) / 2;
-      setMapCenter({ lat, lng });
+      mapRef.current.panTo({ lat, lng });
 
       const dist = haversineDistance(clientLocation.lat, clientLocation.lng, activeAlertResponder.latitude, activeAlertResponder.longitude);
-      if (dist > 5) setMapZoom(10);
-      else if (dist > 2) setMapZoom(12);
-      else setMapZoom(14);
+      if (dist > 5) mapRef.current.setZoom(10);
+      else if (dist > 2) mapRef.current.setZoom(12);
+      else mapRef.current.setZoom(14);
     } else {
       handleRecenterClient();
     }
@@ -334,9 +337,9 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
     activeAlertResponderRef.current = activeAlertResponder;
   }, [activeAlertResponder]);
 
-  // Auto-center map when client or responder location changes
+  // Set initial center once when location is determined
   useEffect(() => {
-    if (!clientLocation) return;
+    if (!clientLocation || initialCenter) return;
 
     const hasLocation = activeAlertResponder
       && activeAlertResponder.latitude !== null
@@ -345,17 +348,11 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
     if (hasLocation && activeAlertResponder) {
       const lat = (clientLocation.lat + activeAlertResponder.latitude!) / 2;
       const lng = (clientLocation.lng + activeAlertResponder.longitude!) / 2;
-      setMapCenter({ lat, lng });
-
-      const dist = haversineDistance(clientLocation.lat, clientLocation.lng, activeAlertResponder.latitude!, activeAlertResponder.longitude!);
-      if (dist > 5) setMapZoom(10);
-      else if (dist > 2) setMapZoom(12);
-      else setMapZoom(13);
+      setInitialCenter({ lat, lng });
     } else {
-      setMapCenter(clientLocation);
-      setMapZoom(14);
+      setInitialCenter(clientLocation);
     }
-  }, [clientLocation, activeAlertResponder?.latitude, activeAlertResponder?.longitude]);
+  }, [clientLocation, activeAlertResponder, initialCenter]);
 
   const handleResolveAlert = async () => {
     if (!activeAlert) return;
@@ -451,8 +448,8 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
       <div className={`${isMapExpanded ? 'h-[500px]' : 'h-[300px] lg:h-[450px]'} relative overflow-hidden rounded-lg border border-gray-700 shrink-0 transition-all duration-300`}>
         <APIProvider apiKey={API_KEY} version="weekly">
           <Map
-            center={mapCenter || clientLocation}
-            zoom={mapZoom}
+            defaultCenter={initialCenter || clientLocation}
+            defaultZoom={initialZoom}
             mapId="CLIENT_MAP_ID"
             style={{ width: '100%', height: '100%' }}
             gestureHandling="greedy"
@@ -461,6 +458,7 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
             streetViewControl={false}
             mapTypeControl={true}
             fullscreenControl={true}
+            onIdle={(e) => { mapRef.current = e.map; }}
           >
             {responderHasLocation && clientLocation && (
               <Polyline
