@@ -320,10 +320,12 @@ export function AlertSentDashboard({ onCancel, darkMode, setActiveTab, emergency
                       : { lat: -1.2921, lng: 36.8219 }}
                     defaultZoom={15}
                     mapId="ALERT_MAP_ID"
-                    internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
                     style={{width: '100%', height: '100%'}}
                     gestureHandling={'greedy'}
                     disableDefaultUI={false}
+                    zoomControl={true}
+                    mapTypeControl={true}
+                    fullscreenControl={true}
                     className="rounded-2xl"
                 >
                     {/* Client/Alert marker */}

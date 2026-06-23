@@ -306,13 +306,12 @@ export function ResponderMap({ darkMode, acceptedAlert, onAlertResolved }: { dar
               : responderLocation)}
             zoom={mapZoom}
             mapId="RESPONDER_MAP_ID"
-            internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
             style={{ width: '100%', height: '100%' }}
             gestureHandling="greedy"
             disableDefaultUI={false}
             zoomControl={true}
             streetViewControl={false}
-            mapTypeControl={false}
+            mapTypeControl={true}
             fullscreenControl={true}
           >
             {/* Responder marker (self) */}

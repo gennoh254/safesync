@@ -163,10 +163,12 @@ export function AdminLiveMap() {
             defaultCenter={center}
             defaultZoom={13}
             mapId="ADMIN_MAP_ID"
-            internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
             style={{ width: '100%', height: '100%' }}
             gestureHandling="greedy"
             disableDefaultUI={false}
+            zoomControl={true}
+            mapTypeControl={true}
+            fullscreenControl={true}
           >
             {alerts.map((alert) => (
               <AdvancedMarker

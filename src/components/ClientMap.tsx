@@ -454,13 +454,12 @@ export function ClientMap({ focusedAlertId }: { focusedAlertId?: string | null }
             center={mapCenter || clientLocation}
             zoom={mapZoom}
             mapId="CLIENT_MAP_ID"
-            internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
             style={{ width: '100%', height: '100%' }}
             gestureHandling="greedy"
             disableDefaultUI={false}
             zoomControl={true}
             streetViewControl={false}
-            mapTypeControl={false}
+            mapTypeControl={true}
             fullscreenControl={true}
           >
             {responderHasLocation && clientLocation && (
