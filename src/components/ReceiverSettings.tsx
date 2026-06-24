@@ -14,7 +14,7 @@ interface ProfileData {
   organization_name: string;
 }
 
-const SOUND_PREF_KEY = 'safesync_responder_sound_enabled';
+export const SOUND_PREF_KEY = 'safesync_responder_sound_enabled';
 
 export function getResponderSoundEnabled(): boolean {
   try {

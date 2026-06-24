@@ -4,6 +4,8 @@ import { useRef, useCallback, useEffect } from 'react';
 // Must be created/resumed inside a user gesture to satisfy browser autoplay policy
 let _audioCtx: AudioContext | null = null;
 let _audioUnlocked = false;
+// Track active audio nodes so we can stop them immediately
+let _activeNodes: AudioNode[] = [];
 
 export function getAudioCtx(): AudioContext | null {
   if (!_audioCtx || _audioCtx.state === 'closed') {
@@ -14,6 +16,21 @@ export function getAudioCtx(): AudioContext | null {
     }
   }
   return _audioCtx;
+}
+
+/** Stop all currently playing audio nodes immediately */
+function stopAllNodes() {
+  _activeNodes.forEach(node => {
+    try {
+      if ('stop' in node && typeof (node as OscillatorNode).stop === 'function') {
+        (node as OscillatorNode).stop();
+      }
+      node.disconnect();
+    } catch {
+      // Node may have already stopped
+    }
+  });
+  _activeNodes = [];
 }
 
 /** Call this inside a click/tap handler to unlock the AudioContext. */
@@ -43,16 +60,17 @@ export function isAudioUnlocked(): boolean {
 // Siren synthesis — classic emergency wail: sweeps 600 Hz → 1200 Hz → 600 Hz
 // Duration of one sweep cycle: ~1.2 s. Loops continuously.
 // ---------------------------------------------------------------------------
-function scheduleSirenCycle(ctx: AudioContext, startAt: number, cycles: number): SchedState {
-  const nodes: AudioNode[] = [];
-
+function scheduleSirenCycle(ctx: AudioContext, startAt: number, cycles: number, stopRequested: () => boolean): void {
   for (let i = 0; i < cycles; i++) {
+    // Check if we should stop scheduling
+    if (stopRequested()) break;
+
     const cycleStart = startAt + i * 1.2;
 
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
 
-    osc.type = 'sawtooth'; // sawtooth gives a harsh, urgent character
+    osc.type = 'sawtooth';
 
     // Sweep up 600→1200 Hz in first 0.6s, then down 1200→600 Hz in next 0.6s
     osc.frequency.setValueAtTime(600, cycleStart);
@@ -88,16 +106,8 @@ function scheduleSirenCycle(ctx: AudioContext, startAt: number, cycles: number):
     osc2.start(cycleStart);
     osc2.stop(cycleStart + 1.2);
 
-    nodes.push(osc, osc2, gain, gain2);
+    _activeNodes.push(osc, osc2, gain, gain2);
   }
-
-  return { startAt, endAt: startAt + cycles * 1.2, nodes };
-}
-
-interface SchedState {
-  startAt: number;
-  endAt: number;
-  nodes: AudioNode[];
 }
 
 // ---------------------------------------------------------------------------
@@ -118,6 +128,9 @@ export function useEmergencyAlert() {
     stopRequestedRef.current = true;
     isPlayingRef.current = false;
 
+    // Stop all audio nodes immediately
+    stopAllNodes();
+
     if (loopTimerRef.current) {
       clearTimeout(loopTimerRef.current);
       loopTimerRef.current = null;
@@ -136,6 +149,9 @@ export function useEmergencyAlert() {
     isPlayingRef.current = true;
     stopRequestedRef.current = false;
 
+    // Clear any leftover nodes from previous alerts
+    stopAllNodes();
+
     if (onSound) {
       const ctx = getAudioCtx();
       if (ctx) {
@@ -145,9 +161,10 @@ export function useEmergencyAlert() {
 
           // Schedule 5 siren cycles (~6 s) ahead, then reschedule
           const BATCH = 5;
-          const scheduled = scheduleSirenCycle(ctx, ctx.currentTime + 0.05, BATCH);
+          const batchDuration = BATCH * 1.2; // 6 seconds
+          scheduleSirenCycle(ctx, ctx.currentTime + 0.05, BATCH, () => stopRequestedRef.current);
 
-          const rescheduleIn = (scheduled.endAt - ctx.currentTime - 0.2) * 1000;
+          const rescheduleIn = (batchDuration - 0.2) * 1000;
           loopTimerRef.current = setTimeout(() => {
             if (!stopRequestedRef.current) doPlay();
           }, Math.max(50, rescheduleIn));
@@ -175,9 +192,12 @@ export function useEmergencyAlert() {
     const ctx = getAudioCtx();
     if (!ctx) return;
 
+    // Stop any existing nodes first
+    stopAllNodes();
+
     const resume = ctx.state === 'suspended' ? ctx.resume() : Promise.resolve();
     resume.then(() => {
-      scheduleSirenCycle(ctx, ctx.currentTime + 0.05, 3);
+      scheduleSirenCycle(ctx, ctx.currentTime + 0.05, 3, () => false);
     }).catch(() => {});
 
     if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]);

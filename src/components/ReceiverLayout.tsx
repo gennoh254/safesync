@@ -3,7 +3,7 @@ import { Hop as Home, Bell, Map, Settings, LogOut, Volume2, BellRing } from 'luc
 import { ReceiverAlerts } from './ReceiverAlerts';
 import { ReceiverHome } from './ReceiverHome';
 import { ReceiverTrackingPage } from './ReceiverTrackingPage';
-import { ReceiverSettings, getResponderSoundEnabled } from './ReceiverSettings';
+import { ReceiverSettings, getResponderSoundEnabled, SOUND_PREF_KEY } from './ReceiverSettings';
 import { IncomingAlertOverlay } from './IncomingAlertOverlay';
 import { useTheme } from '../context/ThemeContext';
 import { supabase } from '../lib/supabase';
@@ -51,10 +51,32 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
     const [hasActiveAlert, setHasActiveAlert] = useState(false);
     const [showAudioBanner, setShowAudioBanner] = useState(false);
     const [audioUnlocked, setAudioUnlocked] = useState(false);
+    const [soundEnabled, setSoundEnabled] = useState(() => getResponderSoundEnabled());
     const { theme } = useTheme();
     const darkMode = theme === 'dark';
-    const soundEnabled = getResponderSoundEnabled();
     const push = usePushNotifications();
+
+    // Listen for sound preference changes from other tabs/components
+    useEffect(() => {
+      const handleStorage = (e: StorageEvent) => {
+        if (e.key === SOUND_PREF_KEY) {
+          setSoundEnabled(e.newValue === 'true');
+        }
+      };
+      window.addEventListener('storage', handleStorage);
+      return () => window.removeEventListener('storage', handleStorage);
+    }, []);
+
+    // Also poll for changes within same tab
+    useEffect(() => {
+      const interval = setInterval(() => {
+        const currentPref = getResponderSoundEnabled();
+        if (currentPref !== soundEnabled) {
+          setSoundEnabled(currentPref);
+        }
+      }, 1000);
+      return () => clearInterval(interval);
+    }, [soundEnabled]);
 
     // Use refs to avoid stale closure issues in subscriptions
     const hasActiveAlertRef = useRef(false);
