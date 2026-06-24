@@ -33,32 +33,55 @@ export function IncomingAlertOverlay({
   const [isMuted, setIsMuted] = useState(!soundEnabled);
   const acceptButtonRef = useRef<HTMLButtonElement>(null);
   const { startAlert, stopAlert } = useEmergencyAlert();
-  const startedRef = useRef(false);
+  const alertStartedRef = useRef(false);
 
   // Auto-start alert sound immediately on mount
   useEffect(() => {
-    if (startedRef.current) return;
-    startedRef.current = true;
+    // Reset alert started flag on mount (key prop ensures fresh component)
+    alertStartedRef.current = false;
 
-    // Focus accept button
-    acceptButtonRef.current?.focus();
+    return () => {
+      // Clean up on unmount
+      stopAlert();
+    };
+  }, [stopAlert]);
 
-    // Only attempt sound if user has enabled it
-    if (soundEnabled) {
-      startAlert({
-        duration: duration * 1000,
-        onVibrate: true,
-        onSound: true
-      });
-    } else {
-      // Still vibrate even if sound is off
-      startAlert({
-        duration: duration * 1000,
-        onVibrate: true,
-        onSound: false
-      });
-    }
-  }, [duration, startAlert, soundEnabled]);
+  // Start alert on first render after mount cleanup completes
+  useEffect(() => {
+    if (alertStartedRef.current) return;
+    alertStartedRef.current = true;
+
+    // Small delay to ensure cleanup from any previous component has completed
+    const timer = setTimeout(() => {
+      // Focus accept button
+      acceptButtonRef.current?.focus();
+
+      console.log('[IncomingAlertOverlay] Starting alert, soundEnabled:', soundEnabled);
+
+      // Stop any lingering audio first
+      stopAlert();
+
+      // Small delay before starting fresh
+      setTimeout(() => {
+        if (soundEnabled) {
+          startAlert({
+            duration: duration * 1000,
+            onVibrate: true,
+            onSound: true
+          });
+        } else {
+          // Still vibrate even if sound is off
+          startAlert({
+            duration: duration * 1000,
+            onVibrate: true,
+            onSound: false
+          });
+        }
+      }, 50);
+    }, 50);
+
+    return () => clearTimeout(timer);
+  }, []); // Empty deps - only run once on mount
 
   // Timer countdown
   useEffect(() => {
@@ -88,8 +111,13 @@ export function IncomingAlertOverlay({
   const handleMuteToggle = () => {
     const nowMuting = !isMuted;
     if (!nowMuting) {
-      startAlert({ duration: timeLeft * 1000, onVibrate: true, onSound: true });
+      // Unmuting - stop current, then start with sound
+      stopAlert();
+      setTimeout(() => {
+        startAlert({ duration: timeLeft * 1000, onVibrate: true, onSound: true });
+      }, 50);
     } else {
+      // Muting - just stop
       stopAlert();
     }
     setIsMuted(nowMuting);

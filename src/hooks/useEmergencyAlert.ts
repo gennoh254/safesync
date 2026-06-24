@@ -4,8 +4,14 @@ import { useRef, useCallback, useEffect } from 'react';
 // Must be created/resumed inside a user gesture to satisfy browser autoplay policy
 let _audioCtx: AudioContext | null = null;
 let _audioUnlocked = false;
-// Track active audio nodes so we can stop them immediately
-let _activeNodes: AudioNode[] = [];
+// Track active oscillators so we can stop them immediately
+let _activeOscillators: OscillatorNode[] = [];
+let _activeGains: GainNode[] = [];
+// Module-level playing state to prevent multiple concurrent alerts
+let _isPlaying = false;
+let _stopRequested = false;
+let _loopTimer: ReturnType<typeof setTimeout> | null = null;
+let _vibrationInterval: ReturnType<typeof setInterval> | null = null;
 
 export function getAudioCtx(): AudioContext | null {
   if (!_audioCtx || _audioCtx.state === 'closed') {
@@ -20,17 +26,25 @@ export function getAudioCtx(): AudioContext | null {
 
 /** Stop all currently playing audio nodes immediately */
 function stopAllNodes() {
-  _activeNodes.forEach(node => {
+  // Stop oscillators immediately (time = 0 means now)
+  _activeOscillators.forEach(osc => {
     try {
-      if ('stop' in node && typeof (node as OscillatorNode).stop === 'function') {
-        (node as OscillatorNode).stop();
-      }
-      node.disconnect();
+      osc.stop(0);
     } catch {
-      // Node may have already stopped
+      // Already stopped
     }
   });
-  _activeNodes = [];
+
+  // Disconnect all nodes
+  _activeOscillators.forEach(osc => {
+    try { osc.disconnect(); } catch {}
+  });
+  _activeGains.forEach(gain => {
+    try { gain.disconnect(); } catch {}
+  });
+
+  _activeOscillators = [];
+  _activeGains = [];
 }
 
 /** Call this inside a click/tap handler to unlock the AudioContext. */
@@ -53,17 +67,22 @@ export async function unlockAudio(): Promise<boolean> {
 }
 
 export function isAudioUnlocked(): boolean {
-  return _audioUnlocked || (_audioCtx?.state === 'running') || false;
+  const ctx = _audioCtx;
+  if (ctx && ctx.state === 'running') {
+    _audioUnlocked = true;
+    return true;
+  }
+  return _audioUnlocked;
 }
 
 // ---------------------------------------------------------------------------
 // Siren synthesis — classic emergency wail: sweeps 600 Hz → 1200 Hz → 600 Hz
 // Duration of one sweep cycle: ~1.2 s. Loops continuously.
 // ---------------------------------------------------------------------------
-function scheduleSirenCycle(ctx: AudioContext, startAt: number, cycles: number, stopRequested: () => boolean): void {
+function scheduleSirenCycle(ctx: AudioContext, startAt: number, cycles: number): void {
   for (let i = 0; i < cycles; i++) {
     // Check if we should stop scheduling
-    if (stopRequested()) break;
+    if (_stopRequested) break;
 
     const cycleStart = startAt + i * 1.2;
 
@@ -88,6 +107,9 @@ function scheduleSirenCycle(ctx: AudioContext, startAt: number, cycles: number, 
     osc.start(cycleStart);
     osc.stop(cycleStart + 1.2);
 
+    _activeOscillators.push(osc);
+    _activeGains.push(gain);
+
     // Second harmonic at half volume for body
     const osc2 = ctx.createOscillator();
     osc2.type = 'sawtooth';
@@ -106,7 +128,8 @@ function scheduleSirenCycle(ctx: AudioContext, startAt: number, cycles: number, 
     osc2.start(cycleStart);
     osc2.stop(cycleStart + 1.2);
 
-    _activeNodes.push(osc, osc2, gain, gain2);
+    _activeOscillators.push(osc2);
+    _activeGains.push(gain2);
   }
 }
 
@@ -118,62 +141,78 @@ interface EmergencyAlertOptions {
   onSound?: boolean;
 }
 
+// Module-level stop function for immediate use
+function stopAll() {
+  _stopRequested = true;
+  _isPlaying = false;
+  stopAllNodes();
+
+  if (_loopTimer) {
+    clearTimeout(_loopTimer);
+    _loopTimer = null;
+  }
+  if (_vibrationInterval) {
+    clearInterval(_vibrationInterval);
+    _vibrationInterval = null;
+  }
+  if ('vibrate' in navigator) navigator.vibrate(0);
+}
+
 export function useEmergencyAlert() {
-  const loopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const vibrationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const isPlayingRef = useRef(false);
-  const stopRequestedRef = useRef(false);
+  // Refs are just for cleanup tracking now
+  const mountedRef = useRef(true);
 
   const stopAlert = useCallback(() => {
-    stopRequestedRef.current = true;
-    isPlayingRef.current = false;
-
-    // Stop all audio nodes immediately
-    stopAllNodes();
-
-    if (loopTimerRef.current) {
-      clearTimeout(loopTimerRef.current);
-      loopTimerRef.current = null;
-    }
-    if (vibrationIntervalRef.current) {
-      clearInterval(vibrationIntervalRef.current);
-      vibrationIntervalRef.current = null;
-    }
-    if ('vibrate' in navigator) navigator.vibrate(0);
+    stopAll();
   }, []);
 
   const startAlert = useCallback((options: EmergencyAlertOptions = {}) => {
     const { duration = 120000, onVibrate = true, onSound = true } = options;
 
-    if (isPlayingRef.current) return;
-    isPlayingRef.current = true;
-    stopRequestedRef.current = false;
+    // Use module-level flag instead of ref
+    if (_isPlaying) {
+      console.log('[EmergencyAlert] Already playing, skipping');
+      return;
+    }
 
-    // Clear any leftover nodes from previous alerts
+    _isPlaying = true;
+    _stopRequested = false;
+
+    // Stop any existing audio first
     stopAllNodes();
 
     if (onSound) {
       const ctx = getAudioCtx();
       if (ctx) {
-        // Resume in case context was suspended after being unlocked
         const doPlay = () => {
-          if (stopRequestedRef.current) return;
+          if (_stopRequested || !mountedRef.current) return;
 
           // Schedule 5 siren cycles (~6 s) ahead, then reschedule
           const BATCH = 5;
           const batchDuration = BATCH * 1.2; // 6 seconds
-          scheduleSirenCycle(ctx, ctx.currentTime + 0.05, BATCH, () => stopRequestedRef.current);
+
+          // Get fresh currentTime for each batch
+          const now = ctx.currentTime;
+          scheduleSirenCycle(ctx, now + 0.05, BATCH);
 
           const rescheduleIn = (batchDuration - 0.2) * 1000;
-          loopTimerRef.current = setTimeout(() => {
-            if (!stopRequestedRef.current) doPlay();
+          _loopTimer = setTimeout(() => {
+            if (!_stopRequested && mountedRef.current) doPlay();
           }, Math.max(50, rescheduleIn));
         };
 
-        if (ctx.state === 'suspended') {
-          ctx.resume().then(() => doPlay()).catch(() => {});
-        } else {
+        // Always ensure context is running before playing
+        const startPlaying = () => {
+          _audioUnlocked = true;
           doPlay();
+        };
+
+        if (ctx.state === 'suspended') {
+          ctx.resume().then(startPlaying).catch((err) => {
+            console.error('[EmergencyAlert] Failed to resume AudioContext:', err);
+          });
+        } else {
+          startPlaying();
         }
       }
     }
@@ -181,12 +220,14 @@ export function useEmergencyAlert() {
     if (onVibrate && 'vibrate' in navigator) {
       const vibratePattern = () => navigator.vibrate([300, 150, 300, 150, 600]);
       vibratePattern();
-      vibrationIntervalRef.current = setInterval(vibratePattern, 2000);
+      _vibrationInterval = setInterval(vibratePattern, 2000);
     }
 
     // Auto-stop after duration
-    setTimeout(() => stopAlert(), duration);
-  }, [stopAlert]);
+    setTimeout(() => {
+      if (_isPlaying) stopAll();
+    }, duration);
+  }, []);
 
   const testAlert = useCallback(() => {
     const ctx = getAudioCtx();
@@ -195,17 +236,27 @@ export function useEmergencyAlert() {
     // Stop any existing nodes first
     stopAllNodes();
 
-    const resume = ctx.state === 'suspended' ? ctx.resume() : Promise.resolve();
-    resume.then(() => {
-      scheduleSirenCycle(ctx, ctx.currentTime + 0.05, 3, () => false);
-    }).catch(() => {});
+    const playTest = () => {
+      const now = ctx.currentTime;
+      scheduleSirenCycle(ctx, now + 0.05, 3);
+    };
+
+    if (ctx.state === 'suspended') {
+      ctx.resume().then(playTest).catch(() => {});
+    } else {
+      playTest();
+    }
 
     if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]);
   }, []);
 
   useEffect(() => {
-    return () => { stopAlert(); };
-  }, [stopAlert]);
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      stopAll();
+    };
+  }, []);
 
-  return { startAlert, stopAlert, testAlert, isPlaying: isPlayingRef.current };
+  return { startAlert, stopAlert, testAlert, isPlaying: _isPlaying };
 }
