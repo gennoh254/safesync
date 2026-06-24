@@ -434,9 +434,10 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
               </div>
             )}
 
-            {/* Incoming Alert Overlay */}
+            {/* Incoming Alert Overlay - key ensures fresh component for each new alert */}
             {incomingAlert && !hasActiveAlert && (
               <IncomingAlertOverlay
+                key={incomingAlert.id}
                 alert={incomingAlert}
                 onAccept={handleAcceptIncomingAlert}
                 onDecline={handleDeclineIncomingAlert}
