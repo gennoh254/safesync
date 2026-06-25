@@ -4,21 +4,23 @@ import { useRef, useCallback, useEffect, useState } from 'react';
 let _audioCtx: AudioContext | null = null;
 let _audioUnlocked = false;
 
-// Active audio nodes - cleared completely on each new alert
+// Active audio nodes
 let _activeOscillators: OscillatorNode[] = [];
 let _activeGains: GainNode[] = [];
 
-// Module-level tracking - ALL cleared on each stop
-let _isPlaying = false;
+// Timers
 let _loopTimer: ReturnType<typeof setTimeout> | null = null;
 let _vibrationInterval: ReturnType<typeof setInterval> | null = null;
 let _autoStopTimer: ReturnType<typeof setTimeout> | null = null;
 
-// Keep an array of listeners to notify all mounted hooks of state changes
+// Alert session tracking - incremented for each new alert
+let _alertSessionId = 0;
+let _currentSessionId = 0;
+
+// State listeners
 const _listeners = new Set<(playing: boolean) => void>();
 
-function setGlobalPlaying(playing: boolean) {
-  _isPlaying = playing;
+function notifyListeners(playing: boolean) {
   _listeners.forEach(listener => listener(playing));
 }
 
@@ -33,20 +35,31 @@ export function getAudioCtx(): AudioContext | null {
   return _audioCtx;
 }
 
-// Completely stop and clear ALL audio state
 function stopAllNodes() {
-  // Stop each oscillator immediately with stop(0)
   for (const osc of _activeOscillators) {
     try { osc.stop(0); } catch {}
     try { osc.disconnect(); } catch {}
   }
-  // Disconnect all gain nodes
   for (const gain of _activeGains) {
     try { gain.disconnect(); } catch {}
   }
-  // Clear the arrays
   _activeOscillators = [];
   _activeGains = [];
+}
+
+function stopAllTimers() {
+  if (_loopTimer) {
+    clearTimeout(_loopTimer);
+    _loopTimer = null;
+  }
+  if (_vibrationInterval) {
+    clearInterval(_vibrationInterval);
+    _vibrationInterval = null;
+  }
+  if (_autoStopTimer) {
+    clearTimeout(_autoStopTimer);
+    _autoStopTimer = null;
+  }
 }
 
 export async function unlockAudio(): Promise<boolean> {
@@ -125,23 +138,16 @@ interface EmergencyAlertOptions {
   onSound?: boolean;
 }
 
-// COMPLETE STOP - clears everything
+// Complete stop - clears everything for fresh start
 function stopAll() {
-  // Clear all timers first
-  if (_loopTimer) {
-    clearTimeout(_loopTimer);
-    _loopTimer = null;
-  }
-  if (_vibrationInterval) {
-    clearInterval(_vibrationInterval);
-    _vibrationInterval = null;
-  }
-  if (_autoStopTimer) {
-    clearTimeout(_autoStopTimer);
-    _autoStopTimer = null;
-  }
+  // Increment session ID to invalidate any pending callbacks
+  _alertSessionId++;
+  _currentSessionId = _alertSessionId;
 
-  // Stop all audio nodes
+  // Stop timers first
+  stopAllTimers();
+
+  // Stop audio nodes
   stopAllNodes();
 
   // Stop vibration
@@ -149,13 +155,13 @@ function stopAll() {
     navigator.vibrate(0);
   }
 
-  // Update global state
-  setGlobalPlaying(false);
+  // Notify listeners that we stopped
+  notifyListeners(false);
 }
 
 export function useEmergencyAlert() {
   const mountedRef = useRef(true);
-  const [isPlaying, setIsPlayingState] = useState(_isPlaying);
+  const [isPlaying, setIsPlayingState] = useState(false);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -178,66 +184,85 @@ export function useEmergencyAlert() {
   const startAlert = useCallback((options: EmergencyAlertOptions = {}) => {
     const { duration = 120000, onVibrate = true, onSound = true } = options;
 
-    // ALWAYS stop everything first before starting new
+    // STOP EVERYTHING first
     stopAll();
 
-    // Use requestAnimationFrame to ensure cleanup completes in the browser's event loop
-    requestAnimationFrame(() => {
-      if (!mountedRef.current) return;
+    // Generate new session ID for this alert
+    const thisSessionId = ++_alertSessionId;
+    _currentSessionId = thisSessionId;
 
-      // Double-check cleanup
-      stopAllNodes();
+    // Notify that we're starting
+    notifyListeners(true);
 
-      setGlobalPlaying(true);
+    // Use setTimeout with 0 delay to let the stopAll cleanup complete in the event loop
+    setTimeout(() => {
+      // Verify this session is still active
+      if (_currentSessionId !== thisSessionId) {
+        console.log('[EmergencyAlert] Session cancelled before start');
+        return;
+      }
+
+      console.log('[EmergencyAlert] Starting alert, session:', thisSessionId);
 
       if (onSound) {
         const ctx = getAudioCtx();
         if (ctx) {
-          const doPlay = () => {
-            if (!mountedRef.current) return;
-            if (!_isPlaying) return; // Check if we were stopped
+          const playSirenBatch = () => {
+            // Check if our session is still the active one
+            if (_currentSessionId !== thisSessionId) {
+              console.log('[EmergencyAlert] Session stopped, not playing more audio');
+              return;
+            }
 
             const BATCH = 5;
             const batchDuration = BATCH * 1.2;
             const now = ctx.currentTime;
 
+            // Schedule this batch
             scheduleSirenCycle(ctx, now + 0.05, BATCH);
 
-            const rescheduleIn = (batchDuration - 0.2) * 1000;
+            // Schedule next batch
+            const nextBatchDelay = (batchDuration - 0.2) * 1000;
             _loopTimer = setTimeout(() => {
-              if (!mountedRef.current || !_isPlaying) return;
-              doPlay();
-            }, Math.max(50, rescheduleIn));
+              playSirenBatch();
+            }, Math.max(50, nextBatchDelay));
           };
 
-          const startPlaying = () => {
+          const startAudio = () => {
             _audioUnlocked = true;
-            doPlay();
+            playSirenBatch();
           };
 
           if (ctx.state === 'suspended') {
-            ctx.resume().then(startPlaying).catch((err) => {
-              console.error('[EmergencyAlert] Context resume failed:', err);
+            ctx.resume().then(startAudio).catch((err) => {
+              console.error('[EmergencyAlert] Failed to resume context:', err);
             });
           } else {
-            startPlaying();
+            startAudio();
           }
+        } else {
+          console.error('[EmergencyAlert] Could not get audio context');
         }
       }
 
       if (onVibrate && 'vibrate' in navigator) {
-        const vibratePattern = () => {
-          if (!_isPlaying) return;
+        const doVibrate = () => {
+          if (_currentSessionId !== thisSessionId) return;
           navigator.vibrate([300, 150, 300, 150, 600]);
         };
-        vibratePattern();
-        _vibrationInterval = setInterval(vibratePattern, 2000);
+        doVibrate();
+        _vibrationInterval = setInterval(doVibrate, 2000);
       }
 
+      // Auto-stop after duration
       _autoStopTimer = setTimeout(() => {
-        stopAll();
+        if (_currentSessionId === thisSessionId) {
+          console.log('[EmergencyAlert] Auto-stopping after duration');
+          stopAll();
+        }
       }, duration);
-    });
+
+    }, 0); // End of setTimeout
   }, []);
 
   const testAlert = useCallback(() => {
@@ -246,18 +271,19 @@ export function useEmergencyAlert() {
 
     stopAll();
 
-    requestAnimationFrame(() => {
-      const playTest = () => {
-        const now = ctx.currentTime;
-        scheduleSirenCycle(ctx, now + 0.05, 3);
-      };
+    setTimeout(() => {
+      const testSession = ++_alertSessionId;
+      _currentSessionId = testSession;
 
-      if (ctx.state === 'suspended') {
-        ctx.resume().then(playTest).catch(() => {});
-      } else {
-        playTest();
-      }
-    });
+      scheduleSirenCycle(ctx, ctx.currentTime + 0.05, 3);
+
+      // Auto-stop test after 4 seconds
+      setTimeout(() => {
+        if (_currentSessionId === testSession) {
+          stopAllNodes();
+        }
+      }, 4000);
+    }, 0);
 
     if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]);
   }, []);

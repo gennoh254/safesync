@@ -48,9 +48,12 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
     try {
       const ctx = getAudioCtx();
       if (!ctx) return;
+
+      console.log('[ReceiverAlerts] Playing short alert notification');
+
       const doPlay = (c: AudioContext) => {
         const now = c.currentTime;
-        // Two siren cycles back-to-back (same sawtooth wail as IncomingAlertOverlay)
+        // Two short siren cycles
         for (let i = 0; i < 2; i++) {
           const t = now + i * 1.2;
           const osc = c.createOscillator();
@@ -60,8 +63,8 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
           osc.frequency.linearRampToValueAtTime(1200, t + 0.6);
           osc.frequency.linearRampToValueAtTime(600, t + 1.2);
           gain.gain.setValueAtTime(0, t);
-          gain.gain.linearRampToValueAtTime(0.5, t + 0.05);
-          gain.gain.setValueAtTime(0.5, t + 1.15);
+          gain.gain.linearRampToValueAtTime(0.4, t + 0.05);
+          gain.gain.setValueAtTime(0.4, t + 1.15);
           gain.gain.linearRampToValueAtTime(0, t + 1.2);
           osc.connect(gain);
           gain.connect(c.destination);
@@ -69,13 +72,14 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
           osc.stop(t + 1.2);
         }
       };
+
       if (ctx.state === 'suspended') {
-        ctx.resume().then(() => doPlay(ctx)).catch(() => {});
+        ctx.resume().then(() => doPlay(ctx)).catch((e) => console.warn('[ReceiverAlerts] Audio resume failed:', e));
       } else {
         doPlay(ctx);
       }
     } catch (e) {
-      console.warn('Failed to play alert sound:', e);
+      console.warn('[ReceiverAlerts] Failed to play alert sound:', e);
     }
   }, []);
 

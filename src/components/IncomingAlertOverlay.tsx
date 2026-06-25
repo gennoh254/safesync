@@ -34,34 +34,50 @@ export function IncomingAlertOverlay({
   const [isMuted, setIsMuted] = useState(!soundEnabled);
   const acceptButtonRef = useRef<HTMLButtonElement>(null);
   const { startAlert, stopAlert } = useEmergencyAlert();
-  const alertInitializedRef = useRef(false);
+
+  // Track whether we've started the alert for this component instance
+  // This handles React 18 StrictMode double-mounting
+  const alertStartedRef = useRef(false);
+  const cleanupRanRef = useRef(false);
 
   // Focus accept button on mount
   useEffect(() => {
     acceptButtonRef.current?.focus();
   }, []);
 
-  // Start alert sound EXACTLY ONCE when component mounts
+  // Start alert sound - runs once when component mounts
   useEffect(() => {
-    // Prevent double initialization (React 18 strict mode can call useEffect twice)
-    if (alertInitializedRef.current) return;
-    alertInitializedRef.current = true;
+    // Only start once per component instance
+    if (alertStartedRef.current) {
+      console.log('[IncomingAlertOverlay] Already started, skipping');
+      return;
+    }
+
+    alertStartedRef.current = true;
+    cleanupRanRef.current = false;
 
     console.log('[IncomingAlertOverlay] Mounting - starting alert for:', alert.id, 'soundEnabled:', soundEnabled);
 
-    // Start immediately - stopAlert is already called in startAlert
+    // Start the alert sound immediately
     startAlert({
       duration: duration * 1000,
       onVibrate: true,
       onSound: soundEnabled
     });
 
-    // Cleanup: ONLY stop when component unmounts (alert accepted, declined, or timed out)
+    // Cleanup function - only runs when component truly unmounts
     return () => {
+      // Prevent double cleanup in React StrictMode
+      if (cleanupRanRef.current) {
+        console.log('[IncomingAlertOverlay] Cleanup already ran, skipping');
+        return;
+      }
+      cleanupRanRef.current = true;
+
       console.log('[IncomingAlertOverlay] Unmounting - stopping alert for:', alert.id);
       stopAlert();
     };
-  }, []); // Empty deps - runs exactly once per mount
+  }, []); // Empty deps - runs once on mount
 
   // Timer countdown - separate effect
   useEffect(() => {
