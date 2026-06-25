@@ -29,6 +29,7 @@ interface IncomingAlert {
   created_at: string;
   current_responder_id: string | null;
   notified_responder_ids: string[] | null;
+  description?: string | null;
 }
 
 // Helper to convert string/number to number (Postgres numeric returns strings)
@@ -136,6 +137,7 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
             created_at: alertData.createdAt,
             current_responder_id: null,
             notified_responder_ids: null,
+            description: (alertData as any).description || null,
           });
         }
 
@@ -236,7 +238,8 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
             client_id: alertData.client_id,
             created_at: alertData.created_at,
             current_responder_id: alertData.current_responder_id,
-            notified_responder_ids: alertData.notified_responder_ids
+            notified_responder_ids: alertData.notified_responder_ids,
+            description: alertData.description
           });
         };
 
@@ -280,7 +283,8 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
             client_id: data.client_id,
             created_at: data.created_at,
             current_responder_id: data.current_responder_id,
-            notified_responder_ids: data.notified_responder_ids
+            notified_responder_ids: data.notified_responder_ids,
+            description: data.description
           });
         }
       }, 3000); // Poll every 3 seconds

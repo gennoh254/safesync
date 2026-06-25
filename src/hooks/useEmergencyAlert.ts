@@ -3,17 +3,16 @@ import { useRef, useCallback, useEffect, useState } from 'react';
 // Module-level AudioContext singleton
 let _audioCtx: AudioContext | null = null;
 let _audioUnlocked = false;
+
+// Active audio nodes - cleared completely on each new alert
 let _activeOscillators: OscillatorNode[] = [];
 let _activeGains: GainNode[] = [];
 
-// Module-level tracking variables
+// Module-level tracking - ALL cleared on each stop
 let _isPlaying = false;
 let _loopTimer: ReturnType<typeof setTimeout> | null = null;
 let _vibrationInterval: ReturnType<typeof setInterval> | null = null;
 let _autoStopTimer: ReturnType<typeof setTimeout> | null = null;
-
-// Alert session ID to track which alert is currently playing
-let _currentSessionId: string | null = null;
 
 // Keep an array of listeners to notify all mounted hooks of state changes
 const _listeners = new Set<(playing: boolean) => void>();
@@ -34,16 +33,18 @@ export function getAudioCtx(): AudioContext | null {
   return _audioCtx;
 }
 
+// Completely stop and clear ALL audio state
 function stopAllNodes() {
-  _activeOscillators.forEach(osc => {
+  // Stop each oscillator immediately with stop(0)
+  for (const osc of _activeOscillators) {
     try { osc.stop(0); } catch {}
-  });
-  _activeOscillators.forEach(osc => {
     try { osc.disconnect(); } catch {}
-  });
-  _activeGains.forEach(gain => {
+  }
+  // Disconnect all gain nodes
+  for (const gain of _activeGains) {
     try { gain.disconnect(); } catch {}
-  });
+  }
+  // Clear the arrays
   _activeOscillators = [];
   _activeGains = [];
 }
@@ -74,14 +75,8 @@ export function isAudioUnlocked(): boolean {
   return _audioUnlocked;
 }
 
-function scheduleSirenCycle(ctx: AudioContext, startAt: number, cycles: number, sessionId: string): void {
-  // If session changed, don't schedule any more audio
-  if (sessionId !== _currentSessionId) return;
-
+function scheduleSirenCycle(ctx: AudioContext, startAt: number, cycles: number): void {
   for (let i = 0; i < cycles; i++) {
-    // Check if session changed mid-scheduling
-    if (sessionId !== _currentSessionId) break;
-
     const cycleStart = startAt + i * 1.2;
 
     const osc = ctx.createOscillator();
@@ -128,13 +123,11 @@ interface EmergencyAlertOptions {
   duration?: number;
   onVibrate?: boolean;
   onSound?: boolean;
-  sessionId?: string;
 }
 
+// COMPLETE STOP - clears everything
 function stopAll() {
-  // Clear the session so any scheduled audio knows to stop
-  _currentSessionId = null;
-
+  // Clear all timers first
   if (_loopTimer) {
     clearTimeout(_loopTimer);
     _loopTimer = null;
@@ -148,10 +141,15 @@ function stopAll() {
     _autoStopTimer = null;
   }
 
+  // Stop all audio nodes
   stopAllNodes();
 
-  if ('vibrate' in navigator) navigator.vibrate(0);
+  // Stop vibration
+  if ('vibrate' in navigator) {
+    navigator.vibrate(0);
+  }
 
+  // Update global state
   setGlobalPlaying(false);
 }
 
@@ -178,26 +176,17 @@ export function useEmergencyAlert() {
   }, []);
 
   const startAlert = useCallback((options: EmergencyAlertOptions = {}) => {
-    const { duration = 120000, onVibrate = true, onSound = true, sessionId } = options;
+    const { duration = 120000, onVibrate = true, onSound = true } = options;
 
-    // Generate a new session ID for this alert if not provided
-    const newSessionId = sessionId || `alert-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
-    // CRITICAL: Stop everything first before starting new
+    // ALWAYS stop everything first before starting new
     stopAll();
 
-    // Small delay to ensure all cleanup is complete, then start fresh
-    // This is necessary because stopAllNodes() uses stop(0) which may still be processing
-    setTimeout(() => {
+    // Use requestAnimationFrame to ensure cleanup completes in the browser's event loop
+    requestAnimationFrame(() => {
       if (!mountedRef.current) return;
 
-      // Set the new session ID
-      _currentSessionId = newSessionId;
-
-      // Clear any remaining timers
-      if (_loopTimer) clearTimeout(_loopTimer);
-      if (_autoStopTimer) clearTimeout(_autoStopTimer);
-      if (_vibrationInterval) clearInterval(_vibrationInterval);
+      // Double-check cleanup
+      stopAllNodes();
 
       setGlobalPlaying(true);
 
@@ -205,21 +194,18 @@ export function useEmergencyAlert() {
         const ctx = getAudioCtx();
         if (ctx) {
           const doPlay = () => {
-            // Check if session is still valid before playing
-            if (_currentSessionId !== newSessionId) return;
             if (!mountedRef.current) return;
+            if (!_isPlaying) return; // Check if we were stopped
 
             const BATCH = 5;
             const batchDuration = BATCH * 1.2;
             const now = ctx.currentTime;
 
-            scheduleSirenCycle(ctx, now + 0.05, BATCH, newSessionId);
+            scheduleSirenCycle(ctx, now + 0.05, BATCH);
 
             const rescheduleIn = (batchDuration - 0.2) * 1000;
             _loopTimer = setTimeout(() => {
-              // Check session is still valid before rescheduling
-              if (_currentSessionId !== newSessionId) return;
-              if (!mountedRef.current) return;
+              if (!mountedRef.current || !_isPlaying) return;
               doPlay();
             }, Math.max(50, rescheduleIn));
           };
@@ -241,7 +227,7 @@ export function useEmergencyAlert() {
 
       if (onVibrate && 'vibrate' in navigator) {
         const vibratePattern = () => {
-          if (_currentSessionId !== newSessionId) return;
+          if (!_isPlaying) return;
           navigator.vibrate([300, 150, 300, 150, 600]);
         };
         vibratePattern();
@@ -249,12 +235,9 @@ export function useEmergencyAlert() {
       }
 
       _autoStopTimer = setTimeout(() => {
-        // Only auto-stop if this session is still active
-        if (_currentSessionId === newSessionId) {
-          stopAll();
-        }
+        stopAll();
       }, duration);
-    }, 10); // Small delay to ensure cleanup completes
+    });
   }, []);
 
   const testAlert = useCallback(() => {
@@ -263,12 +246,10 @@ export function useEmergencyAlert() {
 
     stopAll();
 
-    setTimeout(() => {
-      _currentSessionId = `test-${Date.now()}`;
-
+    requestAnimationFrame(() => {
       const playTest = () => {
         const now = ctx.currentTime;
-        scheduleSirenCycle(ctx, now + 0.05, 3, _currentSessionId!);
+        scheduleSirenCycle(ctx, now + 0.05, 3);
       };
 
       if (ctx.state === 'suspended') {
@@ -276,7 +257,7 @@ export function useEmergencyAlert() {
       } else {
         playTest();
       }
-    }, 10);
+    });
 
     if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]);
   }, []);

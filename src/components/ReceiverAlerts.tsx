@@ -15,6 +15,7 @@ interface Alert {
   accepted_at?: string | null;
   resolved_at?: string | null;
   responder_rating?: number | null;
+  description?: string | null;
 }
 
 interface AcceptedAlertData {
@@ -359,6 +360,14 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
                       <MapPin className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
                       <span>{alert.location || 'Location not available'}</span>
                     </p>
+
+                    {/* Show description for OTHER emergency type */}
+                    {alert.emergency_type === 'OTHER' && alert.description && (
+                      <div className="mb-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                        <p className="text-xs font-bold text-purple-700 mb-1">Description:</p>
+                        <p className="text-sm text-purple-900">{alert.description}</p>
+                      </div>
+                    )}
 
                     <div className="flex gap-2">
                       {isMyActive ? (

@@ -10,6 +10,7 @@ interface IncomingAlert {
   longitude: number | null;
   client_id: string;
   created_at: string;
+  description?: string | null;
 }
 
 interface IncomingAlertOverlayProps {
@@ -33,40 +34,36 @@ export function IncomingAlertOverlay({
   const [isMuted, setIsMuted] = useState(!soundEnabled);
   const acceptButtonRef = useRef<HTMLButtonElement>(null);
   const { startAlert, stopAlert } = useEmergencyAlert();
-  const hasPlayedRef = useRef(false);
-
-  // Generate a unique session ID for this alert instance
-  const sessionIdRef = useRef(`alert-${alert.id}-${Date.now()}`);
+  const alertInitializedRef = useRef(false);
 
   // Focus accept button on mount
   useEffect(() => {
     acceptButtonRef.current?.focus();
   }, []);
 
-  // Start alert sound - runs exactly once per component mount
+  // Start alert sound EXACTLY ONCE when component mounts
   useEffect(() => {
-    // Only play once per mount
-    if (hasPlayedRef.current) return;
-    hasPlayedRef.current = true;
+    // Prevent double initialization (React 18 strict mode can call useEffect twice)
+    if (alertInitializedRef.current) return;
+    alertInitializedRef.current = true;
 
-    console.log('[IncomingAlertOverlay] Starting alert sound for:', alert.id, 'soundEnabled:', soundEnabled);
+    console.log('[IncomingAlertOverlay] Mounting - starting alert for:', alert.id, 'soundEnabled:', soundEnabled);
 
-    // Start the alert with the session ID
+    // Start immediately - stopAlert is already called in startAlert
     startAlert({
       duration: duration * 1000,
       onVibrate: true,
-      onSound: soundEnabled,
-      sessionId: sessionIdRef.current
+      onSound: soundEnabled
     });
 
-    // Cleanup: stop alert when component unmounts
+    // Cleanup: ONLY stop when component unmounts (alert accepted, declined, or timed out)
     return () => {
-      console.log('[IncomingAlertOverlay] Cleaning up alert sound for:', alert.id);
+      console.log('[IncomingAlertOverlay] Unmounting - stopping alert for:', alert.id);
       stopAlert();
     };
-  }, []); // Empty deps - only run once on mount
+  }, []); // Empty deps - runs exactly once per mount
 
-  // Timer countdown
+  // Timer countdown - separate effect
   useEffect(() => {
     if (timeLeft <= 0) {
       stopAlert();
@@ -98,11 +95,10 @@ export function IncomingAlertOverlay({
       startAlert({
         duration: timeLeft * 1000,
         onVibrate: true,
-        onSound: true,
-        sessionId: sessionIdRef.current
+        onSound: true
       });
     } else {
-      // Muting - stop the sound
+      // Muting - stop the sound and vibration
       stopAlert();
     }
     setIsMuted(nowMuting);
@@ -194,6 +190,14 @@ export function IncomingAlertOverlay({
               {emergencyInfo.title}
             </h1>
             <p className="text-white/80 text-lg mb-8">{emergencyInfo.subtitle}</p>
+
+            {/* Show description for OTHER category */}
+            {alert.emergency_type === 'OTHER' && alert.description && (
+              <div className="bg-white/10 backdrop-blur rounded-xl p-4 mb-6">
+                <p className="text-xs font-bold text-white/70 mb-1 uppercase tracking-wider">Description</p>
+                <p className="text-white text-sm">{alert.description}</p>
+              </div>
+            )}
 
             {/* Location card */}
             <div className="bg-white/10 backdrop-blur rounded-xl p-4 mb-8">

@@ -165,6 +165,41 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
         return;
       }
 
+      // Check balance for MEDICAL alerts only - require minimum Ksh 500
+      if (emergencyType === 'MEDICAL') {
+        const { data: payments } = await supabase
+          .from('client_payments')
+          .select('amount, payment_type, status')
+          .eq('client_id', user.id);
+
+        if (payments) {
+          const totalCredits = payments
+            .filter(p => p.payment_type === 'subscription' && p.status === 'completed')
+            .reduce((sum, p) => sum + (p.amount || 0), 0);
+          const totalDebits = payments
+            .filter(p => p.payment_type === 'alert_fee' && p.status === 'completed')
+            .reduce((sum, p) => sum + (p.amount || 0), 0);
+          const balance = totalCredits - totalDebits;
+
+          if (balance < 500) {
+            setAlertError('Medical alerts require a minimum balance of Ksh 500. Please top up your account.');
+            setTimeout(() => {
+              setActiveTab('accounts');
+              setAlertError(null);
+            }, 2000);
+            return;
+          }
+        } else {
+          // No payments found = zero balance
+          setAlertError('Medical alerts require a minimum balance of Ksh 500. Please top up your account.');
+          setTimeout(() => {
+            setActiveTab('accounts');
+            setAlertError(null);
+          }, 2000);
+          return;
+        }
+      }
+
       // Check for existing active alerts - client can only have one active alert at a time
       const { data: existingAlerts } = await supabase
         .from('alerts')
