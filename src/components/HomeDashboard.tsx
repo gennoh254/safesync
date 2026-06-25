@@ -418,17 +418,6 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
                       />
                     </div>
                   )}
-
-                  <div className="grid grid-cols-2 gap-4 w-full mt-8 max-w-md">
-                      <div className={`border p-4 rounded-xl text-center shadow-sm ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`}>
-                          <p className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Status</p>
-                          <p className="font-bold text-green-600">ALL SAFE</p>
-                      </div>
-                      <div className={`border p-4 rounded-xl text-center shadow-sm ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`}>
-                          <p className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-1">Active Alerts</p>
-                          <p className="font-bold">0</p>
-                      </div>
-                  </div>
               </div>
 
               {/* Web View: More structured SOS and Emergency Buttons */}
@@ -499,18 +488,6 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
                     </div>
                   )}
               </div>
-            </div>
-            
-            {/* Summary Cards for Webview */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 gap-4 w-full lg:w-80 mt-8 lg:mt-0 h-fit">
-                <div className={`border p-6 rounded-2xl ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'} shadow-sm`}>
-                    <p className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-2">Status</p>
-                    <p className="text-2xl font-bold text-green-600">ALL SAFE</p>
-                </div>
-                <div className={`border p-6 rounded-2xl ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'} shadow-sm`}>
-                    <p className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-2">Active Alerts</p>
-                    <p className="text-2xl font-bold">0</p>
-                </div>
             </div>
           </div>
         )}
