@@ -8,10 +8,12 @@ let _activeGains: GainNode[] = [];
 
 // Module-level tracking variables
 let _isPlaying = false;
-let _stopRequested = false;
 let _loopTimer: ReturnType<typeof setTimeout> | null = null;
 let _vibrationInterval: ReturnType<typeof setInterval> | null = null;
 let _autoStopTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Alert session ID to track which alert is currently playing
+let _currentSessionId: string | null = null;
 
 // Keep an array of listeners to notify all mounted hooks of state changes
 const _listeners = new Set<(playing: boolean) => void>();
@@ -72,9 +74,14 @@ export function isAudioUnlocked(): boolean {
   return _audioUnlocked;
 }
 
-function scheduleSirenCycle(ctx: AudioContext, startAt: number, cycles: number): void {
+function scheduleSirenCycle(ctx: AudioContext, startAt: number, cycles: number, sessionId: string): void {
+  // If session changed, don't schedule any more audio
+  if (sessionId !== _currentSessionId) return;
+
   for (let i = 0; i < cycles; i++) {
-    if (_stopRequested) break;
+    // Check if session changed mid-scheduling
+    if (sessionId !== _currentSessionId) break;
+
     const cycleStart = startAt + i * 1.2;
 
     const osc = ctx.createOscillator();
@@ -121,12 +128,12 @@ interface EmergencyAlertOptions {
   duration?: number;
   onVibrate?: boolean;
   onSound?: boolean;
+  sessionId?: string;
 }
 
 function stopAll() {
-  _stopRequested = true;
-  setGlobalPlaying(false);
-  stopAllNodes();
+  // Clear the session so any scheduled audio knows to stop
+  _currentSessionId = null;
 
   if (_loopTimer) {
     clearTimeout(_loopTimer);
@@ -140,18 +147,21 @@ function stopAll() {
     clearTimeout(_autoStopTimer);
     _autoStopTimer = null;
   }
+
+  stopAllNodes();
+
   if ('vibrate' in navigator) navigator.vibrate(0);
+
+  setGlobalPlaying(false);
 }
 
 export function useEmergencyAlert() {
   const mountedRef = useRef(true);
-  // Bring module state safely into local React component loop
   const [isPlaying, setIsPlayingState] = useState(_isPlaying);
 
   useEffect(() => {
     mountedRef.current = true;
-    
-    // Subscribe this component to the global module audio events
+
     const listener = (playing: boolean) => {
       if (mountedRef.current) setIsPlayingState(playing);
     };
@@ -168,78 +178,106 @@ export function useEmergencyAlert() {
   }, []);
 
   const startAlert = useCallback((options: EmergencyAlertOptions = {}) => {
-    const { duration = 120000, onVibrate = true, onSound = true } = options;
+    const { duration = 120000, onVibrate = true, onSound = true, sessionId } = options;
 
-    // Reset loop cancellation flags completely before playing
-    _stopRequested = false;
+    // Generate a new session ID for this alert if not provided
+    const newSessionId = sessionId || `alert-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-    // Stop active fragments from a previous alert run cleanly
-    if (_loopTimer) clearTimeout(_loopTimer);
-    if (_autoStopTimer) clearTimeout(_autoStopTimer);
-    stopAllNodes();
+    // CRITICAL: Stop everything first before starting new
+    stopAll();
 
-    setGlobalPlaying(true);
+    // Small delay to ensure all cleanup is complete, then start fresh
+    // This is necessary because stopAllNodes() uses stop(0) which may still be processing
+    setTimeout(() => {
+      if (!mountedRef.current) return;
 
-    if (onSound) {
-      const ctx = getAudioCtx();
-      if (ctx) {
-        const doPlay = () => {
-          if (_stopRequested || !mountedRef.current) return;
+      // Set the new session ID
+      _currentSessionId = newSessionId;
 
-          const BATCH = 5;
-          const batchDuration = BATCH * 1.2;
-          const now = ctx.currentTime;
-          
-          scheduleSirenCycle(ctx, now + 0.05, BATCH);
+      // Clear any remaining timers
+      if (_loopTimer) clearTimeout(_loopTimer);
+      if (_autoStopTimer) clearTimeout(_autoStopTimer);
+      if (_vibrationInterval) clearInterval(_vibrationInterval);
 
-          const rescheduleIn = (batchDuration - 0.2) * 1000;
-          _loopTimer = setTimeout(() => {
-            if (!_stopRequested && mountedRef.current) doPlay();
-          }, Math.max(50, rescheduleIn));
-        };
+      setGlobalPlaying(true);
 
-        const startPlaying = () => {
-          _audioUnlocked = true;
-          doPlay();
-        };
+      if (onSound) {
+        const ctx = getAudioCtx();
+        if (ctx) {
+          const doPlay = () => {
+            // Check if session is still valid before playing
+            if (_currentSessionId !== newSessionId) return;
+            if (!mountedRef.current) return;
 
-        if (ctx.state === 'suspended') {
-          ctx.resume().then(startPlaying).catch((err) => {
-            console.error('[EmergencyAlert] Context resume failed:', err);
-          });
-        } else {
-          startPlaying();
+            const BATCH = 5;
+            const batchDuration = BATCH * 1.2;
+            const now = ctx.currentTime;
+
+            scheduleSirenCycle(ctx, now + 0.05, BATCH, newSessionId);
+
+            const rescheduleIn = (batchDuration - 0.2) * 1000;
+            _loopTimer = setTimeout(() => {
+              // Check session is still valid before rescheduling
+              if (_currentSessionId !== newSessionId) return;
+              if (!mountedRef.current) return;
+              doPlay();
+            }, Math.max(50, rescheduleIn));
+          };
+
+          const startPlaying = () => {
+            _audioUnlocked = true;
+            doPlay();
+          };
+
+          if (ctx.state === 'suspended') {
+            ctx.resume().then(startPlaying).catch((err) => {
+              console.error('[EmergencyAlert] Context resume failed:', err);
+            });
+          } else {
+            startPlaying();
+          }
         }
       }
-    }
 
-    if (onVibrate && 'vibrate' in navigator) {
-      if (_vibrationInterval) clearInterval(_vibrationInterval);
-      const vibratePattern = () => navigator.vibrate([300, 150, 300, 150, 600]);
-      vibratePattern();
-      _vibrationInterval = setInterval(vibratePattern, 2000);
-    }
+      if (onVibrate && 'vibrate' in navigator) {
+        const vibratePattern = () => {
+          if (_currentSessionId !== newSessionId) return;
+          navigator.vibrate([300, 150, 300, 150, 600]);
+        };
+        vibratePattern();
+        _vibrationInterval = setInterval(vibratePattern, 2000);
+      }
 
-    _autoStopTimer = setTimeout(() => {
-      stopAll();
-    }, duration);
+      _autoStopTimer = setTimeout(() => {
+        // Only auto-stop if this session is still active
+        if (_currentSessionId === newSessionId) {
+          stopAll();
+        }
+      }, duration);
+    }, 10); // Small delay to ensure cleanup completes
   }, []);
 
   const testAlert = useCallback(() => {
     const ctx = getAudioCtx();
     if (!ctx) return;
 
-    stopAllNodes();
-    const playTest = () => {
-      const now = ctx.currentTime;
-      scheduleSirenCycle(ctx, now + 0.05, 3);
-    };
+    stopAll();
 
-    if (ctx.state === 'suspended') {
-      ctx.resume().then(playTest).catch(() => {});
-    } else {
-      playTest();
-    }
+    setTimeout(() => {
+      _currentSessionId = `test-${Date.now()}`;
+
+      const playTest = () => {
+        const now = ctx.currentTime;
+        scheduleSirenCycle(ctx, now + 0.05, 3, _currentSessionId!);
+      };
+
+      if (ctx.state === 'suspended') {
+        ctx.resume().then(playTest).catch(() => {});
+      } else {
+        playTest();
+      }
+    }, 10);
+
     if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]);
   }, []);
 

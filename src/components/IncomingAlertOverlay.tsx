@@ -1,4 +1,4 @@
-import { Flame, HeartPulse, MapPin, Clock, Phone, X, CircleCheck as CheckCircle, Volume2, VolumeX, Layers } from 'lucide-react';
+import { Flame, HeartPulse, MapPin, Clock, X, CircleCheck as CheckCircle, Volume2, VolumeX, Layers } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useEmergencyAlert } from '../hooks/useEmergencyAlert';
 
@@ -33,54 +33,37 @@ export function IncomingAlertOverlay({
   const [isMuted, setIsMuted] = useState(!soundEnabled);
   const acceptButtonRef = useRef<HTMLButtonElement>(null);
   const { startAlert, stopAlert } = useEmergencyAlert();
-  const alertStartedRef = useRef(false);
+  const hasPlayedRef = useRef(false);
 
-  // Auto-start alert sound immediately on mount
+  // Generate a unique session ID for this alert instance
+  const sessionIdRef = useRef(`alert-${alert.id}-${Date.now()}`);
+
+  // Focus accept button on mount
   useEffect(() => {
-    // Reset alert started flag on mount (key prop ensures fresh component)
-    alertStartedRef.current = false;
+    acceptButtonRef.current?.focus();
+  }, []);
 
+  // Start alert sound - runs exactly once per component mount
+  useEffect(() => {
+    // Only play once per mount
+    if (hasPlayedRef.current) return;
+    hasPlayedRef.current = true;
+
+    console.log('[IncomingAlertOverlay] Starting alert sound for:', alert.id, 'soundEnabled:', soundEnabled);
+
+    // Start the alert with the session ID
+    startAlert({
+      duration: duration * 1000,
+      onVibrate: true,
+      onSound: soundEnabled,
+      sessionId: sessionIdRef.current
+    });
+
+    // Cleanup: stop alert when component unmounts
     return () => {
-      // Clean up on unmount
+      console.log('[IncomingAlertOverlay] Cleaning up alert sound for:', alert.id);
       stopAlert();
     };
-  }, [stopAlert]);
-
-  // Start alert on first render after mount cleanup completes
-  useEffect(() => {
-    if (alertStartedRef.current) return;
-    alertStartedRef.current = true;
-
-    // Small delay to ensure cleanup from any previous component has completed
-    const timer = setTimeout(() => {
-      // Focus accept button
-      acceptButtonRef.current?.focus();
-
-      console.log('[IncomingAlertOverlay] Starting alert, soundEnabled:', soundEnabled);
-
-      // Stop any lingering audio first
-      stopAlert();
-
-      // Small delay before starting fresh
-      setTimeout(() => {
-        if (soundEnabled) {
-          startAlert({
-            duration: duration * 1000,
-            onVibrate: true,
-            onSound: true
-          });
-        } else {
-          // Still vibrate even if sound is off
-          startAlert({
-            duration: duration * 1000,
-            onVibrate: true,
-            onSound: false
-          });
-        }
-      }, 50);
-    }, 50);
-
-    return () => clearTimeout(timer);
   }, []); // Empty deps - only run once on mount
 
   // Timer countdown
@@ -96,7 +79,7 @@ export function IncomingAlertOverlay({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [timeLeft, onTimeout, stopAlert]);
+  }, [timeLeft, onTimeout]);
 
   const handleAccept = () => {
     stopAlert();
@@ -111,13 +94,15 @@ export function IncomingAlertOverlay({
   const handleMuteToggle = () => {
     const nowMuting = !isMuted;
     if (!nowMuting) {
-      // Unmuting - stop current, then start with sound
-      stopAlert();
-      setTimeout(() => {
-        startAlert({ duration: timeLeft * 1000, onVibrate: true, onSound: true });
-      }, 50);
+      // Unmuting - start with sound
+      startAlert({
+        duration: timeLeft * 1000,
+        onVibrate: true,
+        onSound: true,
+        sessionId: sessionIdRef.current
+      });
     } else {
-      // Muting - just stop
+      // Muting - stop the sound
       stopAlert();
     }
     setIsMuted(nowMuting);
