@@ -22,6 +22,30 @@ interface IncomingAlertOverlayProps {
   soundEnabled?: boolean;
 }
 
+// Keep screen awake using Wake Lock API
+let wakeLock: WakeLockSentinel | null = null;
+
+async function requestWakeLock() {
+  if ('wakeLock' in navigator) {
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      console.log('[IncomingAlertOverlay] Wake lock acquired');
+    } catch (e) {
+      console.error('[IncomingAlertOverlay] Wake lock failed:', e);
+    }
+  }
+}
+
+async function releaseWakeLock() {
+  if (wakeLock) {
+    try {
+      await wakeLock.release();
+      wakeLock = null;
+      console.log('[IncomingAlertOverlay] Wake lock released');
+    } catch {}
+  }
+}
+
 export function IncomingAlertOverlay({
   alert,
   onAccept,
@@ -43,6 +67,43 @@ export function IncomingAlertOverlay({
   // Focus accept button on mount
   useEffect(() => {
     acceptButtonRef.current?.focus();
+  }, []);
+
+  // Title flash effect for attention
+  useEffect(() => {
+    const originalTitle = document.title;
+    let flashInterval: ReturnType<typeof setInterval>;
+    let isFlashing = false;
+
+    flashInterval = setInterval(() => {
+      isFlashing = !isFlashing;
+      document.title = isFlashing
+        ? 'EMERGENCY ALERT - SafeSync'
+        : `${timeLeft}s remaining - SafeSync`;
+    }, 500);
+
+    return () => {
+      clearInterval(flashInterval);
+      document.title = originalTitle;
+    };
+  }, [timeLeft]);
+
+  // Request wake lock to keep screen on
+  useEffect(() => {
+    requestWakeLock();
+
+    // Re-acquire wake lock when page becomes visible again
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        requestWakeLock();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      releaseWakeLock();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, []);
 
   // Start alert sound - runs once when component mounts
@@ -83,6 +144,7 @@ export function IncomingAlertOverlay({
   useEffect(() => {
     if (timeLeft <= 0) {
       stopAlert();
+      releaseWakeLock();
       onTimeout();
       return;
     }
@@ -96,11 +158,13 @@ export function IncomingAlertOverlay({
 
   const handleAccept = () => {
     stopAlert();
+    releaseWakeLock();
     onAccept();
   };
 
   const handleDecline = () => {
     stopAlert();
+    releaseWakeLock();
     onDecline();
   };
 

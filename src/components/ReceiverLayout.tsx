@@ -100,7 +100,28 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
       const unlocked = isAudioUnlocked();
       setAudioUnlocked(unlocked);
       if (!unlocked) setShowAudioBanner(true);
-    }, []);
+
+      // Try to unlock audio on first user interaction
+      const unlockOnInteraction = () => {
+        if (!audioUnlocked) {
+          unlockAudio().then((success) => {
+            if (success) {
+              setAudioUnlocked(true);
+              setShowAudioBanner(false);
+            }
+          });
+        }
+      };
+
+      // Unlock on any user interaction
+      document.addEventListener('click', unlockOnInteraction, { once: true });
+      document.addEventListener('touchstart', unlockOnInteraction, { once: true });
+
+      return () => {
+        document.removeEventListener('click', unlockOnInteraction);
+        document.removeEventListener('touchstart', unlockOnInteraction);
+      };
+    }, [audioUnlocked]);
 
     // Listen for messages from the service worker (push notifications hitting the SW)
     useEffect(() => {
