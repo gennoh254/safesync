@@ -20,6 +20,7 @@ interface AlertRecord {
   responder_id?: string;
   responder?: { name: string; email: string } | null;
   responder_rating?: number | null;
+  description?: string | null;
 }
 
 interface ClientProfile {
@@ -626,6 +627,13 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
                                   <span>{isResolved ? 'Incident resolved' : isUnresolved ? 'Incident not resolved' : isAccepted ? 'Responder en route' : 'Awaiting responder'}</span>
                                 </div>
                               </div>
+                              {/* Show description for OTHER alerts */}
+                              {(alert as any).description && alert.emergency_type === 'OTHER' && (
+                                <div className="mt-3 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                                  <p className="text-xs font-bold text-purple-700 mb-1">Description:</p>
+                                  <p className="text-xs text-purple-900">{(alert as any).description}</p>
+                                </div>
+                              )}
                               {isResolved && (
                                 <div className="mt-3 flex items-center gap-1.5 text-green-600 text-xs font-bold">
                                   <CheckCircle className="w-4 h-4" />

@@ -21,6 +21,7 @@ interface AlertData {
   current_responder_id: string | null;
   client_id: string;
   responder_rating?: number | null;
+  description?: string | null;
 }
 
 interface ResponderInfo {
@@ -194,7 +195,6 @@ export function AlertDetailView({ alertId, onBack, onViewMap }: AlertDetailViewP
 
       if (error) throw error;
       setFeedbackSubmitted(true);
-      setShowRating(false);
       setAlertData(prev => prev ? { ...prev, status: feedback === 'resolved' ? 'RESOLVED' : 'UNRESOLVED', resolved_at: new Date().toISOString(), responder_rating: feedback === 'resolved' ? rating : null } : prev);
     } catch (err) {
       console.error('Failed to submit feedback:', err);
@@ -543,6 +543,14 @@ export function AlertDetailView({ alertId, onBack, onViewMap }: AlertDetailViewP
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Description for OTHER alerts */}
+      {alertData.emergency_type === 'OTHER' && alertData.description && (
+        <div className="border rounded-xl p-4 mb-6 bg-purple-50 border-purple-200">
+          <h2 className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-3">Description</h2>
+          <p className="text-sm text-gray-700">{alertData.description}</p>
         </div>
       )}
 
