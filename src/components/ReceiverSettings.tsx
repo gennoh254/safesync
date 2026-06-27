@@ -49,6 +49,11 @@ export function ReceiverSettings() {
   const [invitedUsers, setInvitedUsers] = useState<{ id: string; name: string; email: string; created_at: string }[]>([]);
   const [organizationMembers, setOrganizationMembers] = useState<{ id: string; name: string; email: string; created_at: string; is_admin: boolean }[]>([]);
 
+  // Organization setup state
+  const [editOrgName, setEditOrgName] = useState('');
+  const [savingOrg, setSavingOrg] = useState(false);
+  const [orgSaveMessage, setOrgSaveMessage] = useState<string | null>(null);
+
   useEffect(() => {
     setAudioUnlocked(isAudioUnlocked());
   }, []);
@@ -188,6 +193,70 @@ export function ReceiverSettings() {
 
   const isProfileComplete = profile.response_types.length > 0 && profile.phone.trim().length > 0;
 
+  // Handler for saving organization name for admins
+  const handleSaveOrganization = async () => {
+    if (!editOrgName.trim()) {
+      setOrgSaveMessage('Please enter an organization name.');
+      return;
+    }
+
+    setSavingOrg(true);
+    setOrgSaveMessage(null);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const orgName = editOrgName.trim();
+
+      // Update admin's profile
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ organization_name: orgName })
+        .eq('id', user.id);
+
+      if (updateError) throw updateError;
+
+      // Update all invited users to have the same organization
+      const { error: batchError } = await supabase
+        .from('profiles')
+        .update({ organization_name: orgName })
+        .eq('invited_by', user.id);
+
+      if (batchError) console.warn('Could not update invited users:', batchError);
+
+      setProfile((prev) => ({ ...prev, organization_name: orgName }));
+      setOrgSaveMessage('Organization saved successfully!');
+      setEditOrgName('');
+
+      // Refresh organization members
+      const { data: orgMembers } = await supabase
+        .from('profiles')
+        .select('id, name, email, created_at, invited_by')
+        .eq('organization_name', orgName)
+        .neq('id', user.id);
+
+      if (orgMembers) {
+        setOrganizationMembers(
+          orgMembers.map((m) => ({
+            id: m.id,
+            name: m.name,
+            email: m.email,
+            created_at: m.created_at,
+            is_admin: !m.invited_by,
+          }))
+        );
+      }
+
+      setTimeout(() => setOrgSaveMessage(null), 3000);
+    } catch (err) {
+      console.error('Failed to save organization:', err);
+      setOrgSaveMessage('Failed to save organization. Please try again.');
+    } finally {
+      setSavingOrg(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className={`p-4 font-sans flex items-center justify-center min-h-screen ${darkMode ? 'bg-gray-900 text-white' : 'bg-white text-black'}`}>
@@ -227,6 +296,50 @@ export function ReceiverSettings() {
             <p className={`text-sm font-bold ${darkMode ? 'text-green-400' : 'text-green-700'}`}>
               Alert sounds are enabled. You will hear incoming alerts.
             </p>
+          </div>
+        )}
+
+        {/* Organization Setup - for admins without organization */}
+        {!profile.invited_by && !profile.organization_name && (
+          <div className={`border-2 rounded-xl p-6 ${darkMode ? 'bg-blue-900/30 border-blue-600' : 'bg-blue-50 border-blue-400'}`}>
+            <div className="flex items-center gap-3 mb-3">
+              <Users className="w-6 h-6 text-blue-600 shrink-0" />
+              <h3 className="font-bold text-blue-700">Set Up Your Organization</h3>
+            </div>
+            <p className={`text-sm mb-4 ${darkMode ? 'text-blue-300' : 'text-blue-700'}`}>
+              You need to set up your organization name before you can add team members and track their activities.
+            </p>
+            <div className="space-y-3">
+              <input
+                type="text"
+                value={editOrgName}
+                onChange={(e) => setEditOrgName(e.target.value)}
+                placeholder="Enter your organization name"
+                className={`w-full p-3 rounded-lg border text-sm ${darkMode ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white border-gray-300 text-black'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
+              />
+              {orgSaveMessage && (
+                <p className={`text-sm font-medium ${orgSaveMessage.includes('success') ? 'text-green-600' : 'text-red-600'}`}>
+                  {orgSaveMessage}
+                </p>
+              )}
+              <button
+                onClick={handleSaveOrganization}
+                disabled={savingOrg}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+              >
+                {savingOrg ? (
+                  <>
+                    <Loader className="w-5 h-5 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Users className="w-5 h-5" />
+                    Save Organization
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         )}
 
@@ -562,10 +675,13 @@ export function ReceiverSettings() {
               </div>
               <button
                 onClick={() => setShowAddUser(!showAddUser)}
+                disabled={!profile.organization_name}
                 className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${
                   showAddUser
                     ? 'bg-gray-200 text-gray-700'
-                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                    : profile.organization_name
+                    ? 'bg-blue-600 text-white hover:bg-blue-700'
+                    : 'bg-gray-400 text-gray-200 cursor-not-allowed'
                 }`}
               >
                 <UserPlus className="w-4 h-4" />
@@ -573,12 +689,21 @@ export function ReceiverSettings() {
               </button>
             </div>
 
+            {/* Warning if no organization */}
+            {!profile.organization_name && (
+              <div className={`p-4 rounded-lg mb-4 ${darkMode ? 'bg-yellow-900/30 border border-yellow-700' : 'bg-yellow-50 border border-yellow-300'}`}>
+                <p className={`text-sm font-bold ${darkMode ? 'text-yellow-300' : 'text-yellow-700'}`}>
+                  Set up your organization name above before adding team members.
+                </p>
+              </div>
+            )}
+
             <p className="text-xs text-gray-500 mb-4">
               Add new responder users to your organization. They will log in with the email and password you provide.
             </p>
 
             {/* Add User Form */}
-            {showAddUser && (
+            {showAddUser && profile.organization_name && (
               <div className={`p-4 rounded-lg border mb-4 ${darkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}>
                 <div className="space-y-3">
                   <div>
