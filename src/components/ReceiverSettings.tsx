@@ -25,7 +25,12 @@ export function getResponderSoundEnabled(): boolean {
   }
 }
 
-export function ReceiverSettings() {
+interface ReceiverSettingsProps {
+  isAdmin?: boolean;
+  organizationName?: string;
+}
+
+export function ReceiverSettings({ isAdmin: isAdminProp, organizationName: orgNameProp }: ReceiverSettingsProps = {}) {
   const { theme, toggleTheme } = useTheme();
   const darkMode = theme === 'dark';
   const { testAlert } = useEmergencyAlert();
@@ -37,6 +42,10 @@ export function ReceiverSettings() {
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Derived from profile (or props as fallback)
+  const isAdmin = profile.invited_by === null;
+  const organizationName = profile.organization_name;
 
   // Account management state
   const [showAddUser, setShowAddUser] = useState(false);

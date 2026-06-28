@@ -54,6 +54,8 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
     const [showAudioBanner, setShowAudioBanner] = useState(false);
     const [audioUnlocked, setAudioUnlocked] = useState(false);
     const [soundEnabled, setSoundEnabled] = useState(() => getResponderSoundEnabled());
+    const [isAdmin, setIsAdmin] = useState(false); // True if user created the org (invited_by is null)
+    const [organizationName, setOrganizationName] = useState('');
     const { theme } = useTheme();
     const darkMode = theme === 'dark';
     const push = usePushNotifications();
@@ -211,6 +213,29 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
       };
 
       checkActiveAlert();
+    }, []);
+
+    // Check if user is admin (created the org) and get organization info
+    useEffect(() => {
+      const checkAdminStatus = async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('invited_by, organization_name')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        if (profile) {
+          // Admin = invited_by is null (they created the org)
+          const userIsAdmin = profile.invited_by === null;
+          setIsAdmin(userIsAdmin);
+          setOrganizationName(profile.organization_name || '');
+        }
+      };
+
+      checkAdminStatus();
     }, []);
 
     // Function to call edge function for routing alert to next responder
@@ -507,7 +532,9 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
                   <button onClick={() => setActiveTab('home')} className={`flex items-center gap-3 w-full p-3 rounded-lg ${activeTab === 'home' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}><Home className="w-5 h-5 text-white" />Home</button>
                   <button onClick={() => setActiveTab('alerts')} className={`flex items-center gap-3 w-full p-3 rounded-lg ${activeTab === 'alerts' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}><Bell className="w-5 h-5 text-white" />Alerts</button>
                   <button onClick={() => setActiveTab('map')} className={`flex items-center gap-3 w-full p-3 rounded-lg ${activeTab === 'map' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}><Map className="w-5 h-5 text-white" />Map</button>
-                  <button onClick={() => setActiveTab('tracking')} className={`flex items-center gap-3 w-full p-3 rounded-lg ${activeTab === 'tracking' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}><Users className="w-5 h-5 text-white" />Team</button>
+                  {isAdmin && (
+                    <button onClick={() => setActiveTab('tracking')} className={`flex items-center gap-3 w-full p-3 rounded-lg ${activeTab === 'tracking' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}><Users className="w-5 h-5 text-white" />Team</button>
+                  )}
                   <button onClick={() => setActiveTab('settings')} className={`flex items-center gap-3 w-full p-3 rounded-lg ${activeTab === 'settings' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}><Settings className="w-5 h-5 text-white" />Settings</button>
                 </div>
                 <button onClick={onLogout} className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-slate-800 mt-auto text-gray-400 hover:text-white"><LogOut className="w-5 h-5" />Log Out</button>
@@ -517,16 +544,18 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
                 {activeTab === 'home' && <ReceiverHome onGoToMap={() => setActiveTab('map')} onGoToSettings={() => setActiveTab('settings')} />}
                 {activeTab === 'alerts' && <ReceiverAlerts onAcceptAlert={handleAcceptAlert} />}
                 {activeTab === 'map' && <ReceiverTrackingPage darkMode={darkMode} acceptedAlert={acceptedAlert} onAlertResolved={handleClearActiveAlert} />}
-                {activeTab === 'tracking' && <ResponderOrgTracking darkMode={darkMode} onBack={() => setActiveTab('home')} />}
-                {activeTab === 'settings' && <ReceiverSettings />}
+                {activeTab === 'tracking' && isAdmin && <ResponderOrgTracking darkMode={darkMode} onBack={() => setActiveTab('home')} />}
+                {activeTab === 'settings' && <ReceiverSettings isAdmin={isAdmin} organizationName={organizationName} />}
             </div>
 
             {/* Navbar for Mobile */}
-            <nav className="lg:hidden sticky bottom-0 z-50 grid grid-cols-6 bg-[#0B1727] border-t border-slate-800 py-4 text-white">
+            <nav className={`lg:hidden sticky bottom-0 z-50 ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'} bg-[#0B1727] border-t border-slate-800 py-4 text-white`}>
                 <button onClick={() => { setActiveTab('home'); setAcceptedAlert(null); }} className={`flex flex-col items-center gap-1 ${activeTab === 'home' ? 'text-blue-400' : 'text-white'}`}><Home className="w-6 h-6" /><span className="text-[10px] font-bold">HOME</span></button>
                 <button onClick={() => { setActiveTab('alerts'); setAcceptedAlert(null); }} className={`flex flex-col items-center gap-1 ${activeTab === 'alerts' ? 'text-blue-400' : 'text-white'}`}><Bell className="w-6 h-6" /><span className="text-[10px] font-bold">ALERTS</span></button>
                 <button onClick={() => setActiveTab('map')} className={`flex flex-col items-center gap-1 ${activeTab === 'map' ? 'text-blue-400' : 'text-white'}`}><Map className="w-6 h-6" /><span className="text-[10px] font-bold">MAP</span></button>
-                <button onClick={() => setActiveTab('tracking')} className={`flex flex-col items-center gap-1 ${activeTab === 'tracking' ? 'text-blue-400' : 'text-white'}`}><Users className="w-6 h-6" /><span className="text-[10px] font-bold">TEAM</span></button>
+                {isAdmin && (
+                  <button onClick={() => setActiveTab('tracking')} className={`flex flex-col items-center gap-1 ${activeTab === 'tracking' ? 'text-blue-400' : 'text-white'}`}><Users className="w-6 h-6" /><span className="text-[10px] font-bold">TEAM</span></button>
+                )}
                 <button onClick={() => setActiveTab('settings')} className={`flex flex-col items-center gap-1 ${activeTab === 'settings' ? 'text-blue-400' : 'text-white'}`}><Settings className="w-6 h-6" /><span className="text-[10px] font-bold">SETTINGS</span></button>
                 <button onClick={onLogout} className="flex flex-col items-center gap-1 text-gray-400"><LogOut className="w-6 h-6" /><span className="text-[10px] font-bold">LOGOUT</span></button>
             </nav>
