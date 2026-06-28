@@ -264,8 +264,12 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
 
       const setupSubscription = async () => {
         const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
+        if (!user) {
+          console.log('[Receiver] No user found for subscription');
+          return;
+        }
         userId = user.id;
+        console.log('[Receiver] Setting up subscription for user:', userId);
 
         const handleAlertData = (alertData: any) => {
           console.log('[Receiver] handleAlertData called:', {
@@ -317,15 +321,21 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
 
         // Listen for both INSERT and UPDATE — edge function may set current_responder_id at creation
         channel = supabase
-          .channel(`responder-alerts-v5-${user.id}`)
+          .channel(`responder-alerts-v6-${user.id}-${Date.now()}`)
           .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'alerts' },
-            (payload) => { console.log('[Receiver] INSERT', payload.new?.id); handleAlertData(payload.new); }
+            (payload) => { console.log('[Receiver] INSERT event received:', payload.new?.id); handleAlertData(payload.new); }
           )
           .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'alerts' },
-            (payload) => { console.log('[Receiver] UPDATE', payload.new?.id, 'responder:', (payload.new as any)?.current_responder_id); handleAlertData(payload.new); }
+            (payload) => { console.log('[Receiver] UPDATE event received:', payload.new?.id, 'responder:', (payload.new as any)?.current_responder_id); handleAlertData(payload.new); }
           )
           .subscribe((status) => {
             console.log('[Receiver] Subscription status:', status);
+            if (status === 'CHANNEL_ERROR') {
+              console.error('[Receiver] Channel error - realtime may not be configured');
+            }
+            if (status === 'TIMED_OUT') {
+              console.error('[Receiver] Subscription timed out');
+            }
           });
       };
 
@@ -334,17 +344,33 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
       // Poll for alerts assigned to this responder (fallback for missed real-time events)
       const pollInterval = setInterval(async () => {
         const { data: { user } } = await supabase.auth.getUser();
-        if (!user || hasActiveAlertRef.current) return;
+        if (!user) {
+          console.log('[Receiver] Poll: No user');
+          return;
+        }
+        if (hasActiveAlertRef.current) {
+          console.log('[Receiver] Poll: Already has active alert, skipping');
+          return;
+        }
 
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from('alerts')
           .select('*')
           .eq('status', 'ACTIVE')
           .eq('current_responder_id', user.id)
           .maybeSingle();
 
+        if (error) {
+          console.error('[Receiver] Poll error:', error);
+          return;
+        }
+
+        if (data) {
+          console.log('[Receiver] Poll found alert:', data.id, 'incomingAlertRef:', !!incomingAlertRef.current, 'processed:', processedAlertsRef.current.has(data.id));
+        }
+
         if (data && !incomingAlertRef.current && !processedAlertsRef.current.has(data.id)) {
-          console.log('[Receiver] Poll found alert assigned to me:', data.id);
+          console.log('[Receiver] *** POLL FOUND ALERT *** - showing overlay:', data.id);
           processedAlertsRef.current.add(data.id);
           setIncomingAlert({
             id: data.id,
@@ -362,6 +388,7 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
       }, 3000); // Poll every 3 seconds
 
       return () => {
+        console.log('[Receiver] Cleaning up subscription');
         if (channel) channel.unsubscribe();
         clearInterval(pollInterval);
       };
