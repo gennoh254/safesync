@@ -90,13 +90,28 @@ function startFallbackAudio(sessionId: number) {
     _fallbackAudio = new Audio(FALLBACK_ALERT_SOUND);
     _fallbackAudio.volume = 1.0;
 
+    let playAttempts = 0;
+    const maxAttempts = 5;
+
     const playSound = async () => {
       if (_currentSessionId !== sessionId || !_fallbackAudio) return;
+      if (playAttempts >= maxAttempts) {
+        console.error('[Fallback Audio] Max play attempts reached');
+        return;
+      }
+
+      playAttempts++;
       try {
         _fallbackAudio.currentTime = 0;
         await _fallbackAudio.play();
+        console.log('[Fallback Audio] Playing successfully, attempt:', playAttempts);
+        playAttempts = 0; // Reset on success
       } catch (e) {
-        console.error('[Fallback Audio] Play failed:', e);
+        console.error('[Fallback Audio] Play failed (attempt', playAttempts, '):', e);
+        // Retry after a short delay
+        if (_currentSessionId === sessionId && playAttempts < maxAttempts) {
+          setTimeout(() => playSound(), 200);
+        }
       }
     };
 
@@ -106,6 +121,8 @@ function startFallbackAudio(sessionId: number) {
         playSound();
       }
     }, 1200);
+
+    console.log('[Fallback Audio] Started for session', sessionId);
   } catch (e) {
     console.error('[Fallback Audio] Setup failed:', e);
   }
@@ -115,15 +132,23 @@ export async function unlockAudio(): Promise<boolean> {
   const ctx = getAudioCtx();
   if (!ctx) return false;
   try {
-    await ctx.resume();
+    // Always try to resume, even if already running
+    if (ctx.state === 'suspended') {
+      await ctx.resume();
+    }
+
+    // Play a short silent buffer to unlock audio
     const buf = ctx.createBuffer(1, 1, ctx.sampleRate);
     const src = ctx.createBufferSource();
     src.buffer = buf;
     src.connect(ctx.destination);
-    src.start();
+    src.start(0);
+
     _audioUnlocked = ctx.state === 'running';
+    console.log('[EmergencyAlert] Audio unlocked:', _audioUnlocked, 'ctx state:', ctx.state);
     return _audioUnlocked;
-  } catch {
+  } catch (e) {
+    console.error('[EmergencyAlert] unlockAudio failed:', e);
     return false;
   }
 }
@@ -280,7 +305,6 @@ export function useEmergencyAlert() {
 
       if (onSound) {
         const ctx = getAudioCtx();
-        let audioStarted = false;
 
         if (ctx) {
           const playSirenBatch = () => {
@@ -306,32 +330,32 @@ export function useEmergencyAlert() {
 
           const startAudio = () => {
             _audioUnlocked = true;
-            audioStarted = true;
+            console.log('[EmergencyAlert] Web Audio started successfully');
             playSirenBatch();
           };
 
+          // Try to resume and start audio
           if (ctx.state === 'suspended') {
-            ctx.resume().then(startAudio).catch((err) => {
+            console.log('[EmergencyAlert] Context suspended, attempting resume...');
+            ctx.resume().then(() => {
+              if (_currentSessionId === thisSessionId) {
+                startAudio();
+              }
+            }).catch((err) => {
               console.error('[EmergencyAlert] Failed to resume context:', err);
               // Fallback to HTML5 audio if Web Audio fails
-              if (!audioStarted && _currentSessionId === thisSessionId) {
-                console.log('[EmergencyAlert] Using fallback audio');
+              if (_currentSessionId === thisSessionId) {
+                console.log('[EmergencyAlert] Using fallback audio due to resume failure');
                 startFallbackAudio(thisSessionId);
               }
             });
           } else {
             startAudio();
           }
+        } else {
+          console.error('[EmergencyAlert] Could not get audio context - using fallback');
+          startFallbackAudio(thisSessionId);
         }
-
-        // Always start fallback audio as a safety net (will stop if Web Audio works)
-        // This ensures audio plays even if Web Audio is blocked
-        setTimeout(() => {
-          if (_currentSessionId === thisSessionId && !audioStarted) {
-            console.log('[EmergencyAlert] Starting fallback audio as primary');
-            startFallbackAudio(thisSessionId);
-          }
-        }, 100);
       }
 
       if (onVibrate && 'vibrate' in navigator) {

@@ -1,6 +1,6 @@
 import { Flame, HeartPulse, MapPin, Clock, X, CircleCheck as CheckCircle, Volume2, VolumeX, Layers } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { useEmergencyAlert } from '../hooks/useEmergencyAlert';
+import { useEmergencyAlert, unlockAudio } from '../hooks/useEmergencyAlert';
 
 interface IncomingAlert {
   id: string;
@@ -59,11 +59,6 @@ export function IncomingAlertOverlay({
   const acceptButtonRef = useRef<HTMLButtonElement>(null);
   const { startAlert, stopAlert } = useEmergencyAlert();
 
-  // Track whether we've started the alert for this component instance
-  // This handles React 18 StrictMode double-mounting
-  const alertStartedRef = useRef(false);
-  const cleanupRanRef = useRef(false);
-
   // Focus accept button on mount
   useEffect(() => {
     acceptButtonRef.current?.focus();
@@ -106,39 +101,36 @@ export function IncomingAlertOverlay({
     };
   }, []);
 
-  // Start alert sound - runs once when component mounts
+  // Start alert sound when component mounts
+  // startAlert internally calls stopAll() first, so it's safe to call on every mount
   useEffect(() => {
-    // Only start once per component instance
-    if (alertStartedRef.current) {
-      console.log('[IncomingAlertOverlay] Already started, skipping');
-      return;
-    }
-
-    alertStartedRef.current = true;
-    cleanupRanRef.current = false;
-
     console.log('[IncomingAlertOverlay] Mounting - starting alert for:', alert.id, 'soundEnabled:', soundEnabled);
 
-    // Start the alert sound immediately
+    // Always try to play sound - the startAlert function handles audio unlocking
+    // Play sound regardless of initial soundEnabled state - this is an emergency alert
     startAlert({
       duration: duration * 1000,
       onVibrate: true,
-      onSound: soundEnabled
+      onSound: true // Always play sound for emergency alerts
     });
 
-    // Cleanup function - only runs when component truly unmounts
+    // Cleanup function - runs when component unmounts
     return () => {
-      // Prevent double cleanup in React StrictMode
-      if (cleanupRanRef.current) {
-        console.log('[IncomingAlertOverlay] Cleanup already ran, skipping');
-        return;
-      }
-      cleanupRanRef.current = true;
-
       console.log('[IncomingAlertOverlay] Unmounting - stopping alert for:', alert.id);
       stopAlert();
     };
-  }, []); // Empty deps - runs once on mount
+  }, [alert.id, duration, startAlert, stopAlert]); // Removed soundEnabled - always play
+
+  // Handle click anywhere to unlock audio (in case it's blocked)
+  const handleOverlayClick = async () => {
+    await unlockAudio();
+    // Restart alert sound now that audio is unlocked
+    startAlert({
+      duration: timeLeft * 1000,
+      onVibrate: true,
+      onSound: true
+    });
+  };
 
   // Timer countdown - separate effect
   useEffect(() => {
@@ -218,7 +210,8 @@ export function IncomingAlertOverlay({
   const isUrgent = timeLeft <= 30;
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/90 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/90 backdrop-blur-sm" onClick={handleOverlayClick}>
+      {/* Click anywhere to unlock audio */}
       {/* Pulsing background rings */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
         <div className="w-[600px] h-[600px] rounded-full border-4 border-red-500/20 animate-ping" style={{ animationDuration: '2s' }} />
