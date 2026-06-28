@@ -268,12 +268,37 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
         userId = user.id;
 
         const handleAlertData = (alertData: any) => {
-          if (!alertData || alertData.current_responder_id !== userId) return;
-          if (alertData.status !== 'ACTIVE') return;
-          if (hasActiveAlertRef.current) return;
-          if (processedAlertsRef.current.has(alertData.id)) return;
+          console.log('[Receiver] handleAlertData called:', {
+            id: alertData?.id,
+            current_responder_id: alertData?.current_responder_id,
+            userId: userId,
+            status: alertData?.status,
+            hasActiveAlertRef: hasActiveAlertRef.current,
+            processed: processedAlertsRef.current.has(alertData?.id)
+          });
 
-          console.log('[Receiver] Alert assigned to me:', alertData.id);
+          if (!alertData) {
+            console.log('[Receiver] Skipping - no alertData');
+            return;
+          }
+          if (alertData.current_responder_id !== userId) {
+            console.log('[Receiver] Skipping - not my alert. responder:', alertData.current_responder_id);
+            return;
+          }
+          if (alertData.status !== 'ACTIVE') {
+            console.log('[Receiver] Skipping - not ACTIVE:', alertData.status);
+            return;
+          }
+          if (hasActiveAlertRef.current) {
+            console.log('[Receiver] Skipping - already has active alert');
+            return;
+          }
+          if (processedAlertsRef.current.has(alertData.id)) {
+            console.log('[Receiver] Skipping - already processed');
+            return;
+          }
+
+          console.log('[Receiver] *** ALERT ASSIGNED TO ME *** - showing overlay:', alertData.id);
           processedAlertsRef.current.add(alertData.id);
 
           setIncomingAlert({
@@ -508,17 +533,24 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
             )}
 
             {/* Incoming Alert Overlay - key ensures fresh component for each new alert */}
-            {incomingAlert && !hasActiveAlert && (
-              <IncomingAlertOverlay
-                key={incomingAlert.id}
-                alert={incomingAlert}
-                onAccept={handleAcceptIncomingAlert}
-                onDecline={handleDeclineIncomingAlert}
-                onTimeout={handleTimeoutIncomingAlert}
-                duration={ALERT_TIMEOUT_SECONDS}
-                soundEnabled={soundEnabled}
-              />
-            )}
+            {(() => {
+              console.log('[Receiver] Render check - incomingAlert:', !!incomingAlert, 'hasActiveAlert:', hasActiveAlert);
+              if (incomingAlert && !hasActiveAlert) {
+                console.log('[Receiver] *** RENDERING OVERLAY *** for alert:', incomingAlert.id);
+                return (
+                  <IncomingAlertOverlay
+                    key={incomingAlert.id}
+                    alert={incomingAlert}
+                    onAccept={handleAcceptIncomingAlert}
+                    onDecline={handleDeclineIncomingAlert}
+                    onTimeout={handleTimeoutIncomingAlert}
+                    duration={ALERT_TIMEOUT_SECONDS}
+                    soundEnabled={soundEnabled}
+                  />
+                );
+              }
+              return null;
+            })()}
 
             {/* Sidebar for Desktop */}
             <nav className="hidden lg:flex flex-col w-64 border-r bg-[#0B1727] border-slate-800 p-6 text-white">
