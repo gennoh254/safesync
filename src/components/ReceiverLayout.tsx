@@ -608,7 +608,7 @@ export function ReceiverLayout({ onLogout }: ReceiverLayoutProps) {
             </div>
 
             {/* Navbar for Mobile */}
-            <nav className={`lg:hidden sticky bottom-0 z-50 ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'} bg-[#0B1727] border-t border-slate-800 py-4 text-white`}>
+            <nav className={`lg:hidden sticky bottom-0 z-50 grid ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'} bg-[#0B1727] border-t border-slate-800 pt-3 pb-safe text-white`} style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
                 <button onClick={() => { setActiveTab('home'); setAcceptedAlert(null); }} className={`flex flex-col items-center gap-1 ${activeTab === 'home' ? 'text-blue-400' : 'text-white'}`}><Home className="w-6 h-6" /><span className="text-[10px] font-bold">HOME</span></button>
                 <button onClick={() => { setActiveTab('alerts'); setAcceptedAlert(null); }} className={`flex flex-col items-center gap-1 ${activeTab === 'alerts' ? 'text-blue-400' : 'text-white'}`}><Bell className="w-6 h-6" /><span className="text-[10px] font-bold">ALERTS</span></button>
                 <button onClick={() => setActiveTab('map')} className={`flex flex-col items-center gap-1 ${activeTab === 'map' ? 'text-blue-400' : 'text-white'}`}><Map className="w-6 h-6" /><span className="text-[10px] font-bold">MAP</span></button>

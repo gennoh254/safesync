@@ -136,7 +136,11 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
         myActive = acceptedData || [];
       }
 
-      setAlerts([...myActive, ...(activeAlerts || [])]);
+      // Combine and sort by created_at descending (newest first)
+      const allAlerts = [...myActive, ...(activeAlerts || [])].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+      setAlerts(allAlerts);
       setError(null);
     } catch (err: any) {
       setError(err.message ?? 'Failed to fetch alerts');
@@ -156,7 +160,8 @@ export function ReceiverAlerts({ onAcceptAlert }: { onAcceptAlert: (alert: Accep
         .select('*')
         .eq('current_responder_id', user.id)
         .in('status', ['RESOLVED', 'UNRESOLVED'])
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(50);
 
       if (err) throw err;
       setMyAlerts(data || []);

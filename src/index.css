@@ -3,7 +3,7 @@
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  
+
   --color-surface: #ffffff;
   --color-surface-dim: #f4f4f4;
   --color-surface-bright: #ffffff;
@@ -39,7 +39,39 @@
 }
 
 @layer base {
+  html {
+    /* Prevent overscroll/bounce on iOS */
+    overscroll-behavior: none;
+    /* Better touch scrolling */
+    -webkit-overflow-scrolling: touch;
+  }
+
   body {
     @apply bg-surface text-on-surface min-h-screen flex flex-col;
+    /* Safe area insets for notched devices */
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    /* Prevent text selection on UI elements */
+    -webkit-user-select: none;
+    user-select: none;
+    /* Prevent pull-to-refresh on mobile */
+    overscroll-behavior-y: contain;
+  }
+
+  /* Allow text selection in input fields */
+  input, textarea {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+}
+
+/* Safe area padding utilities for mobile nav bars */
+@layer utilities {
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .pt-safe {
+    padding-top: env(safe-area-inset-top, 0px);
   }
 }
