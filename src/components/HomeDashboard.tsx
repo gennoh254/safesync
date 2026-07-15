@@ -4,6 +4,7 @@ import { AlertSentDashboard } from './AlertSentDashboard';
 import { ClientMap } from './ClientMap';
 import { AlertDetailView } from './AlertDetailView';
 import { ClientAccounts } from './ClientAccounts';
+import { PromoCard } from './PromoCard';
 import { supabase } from '../lib/supabase';
 
 interface HomeDashboardProps {
@@ -524,6 +525,9 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
                     </div>
                   )}
               </div>
+
+              {/* Promotional Information Card */}
+              <PromoCard />
             </div>
           </div>
         )}
