@@ -1,5 +1,4 @@
 import { Zap, Navigation, ShieldCheck, Bell, MapPin, Smartphone } from 'lucide-react';
-import { useEffect, useState } from 'react';
 
 const features = [
   { icon: Zap, label: 'Real-time Alerts', color: 'text-red-500', bg: 'bg-red-50' },
@@ -7,29 +6,7 @@ const features = [
   { icon: ShieldCheck, label: 'Community Protection', color: 'text-green-500', bg: 'bg-green-50' },
 ];
 
-// Emergency-response themed stock photos from Pexels
-const backgroundImages = [
-  'https://images.pexels.com/photos/630335/pexels-photo-630335.jpeg?auto=compress&cs=tinysrgb&w=800',
-  'https://images.pexels.com/photos/263402/pexels-photo-263402.jpeg?auto=compress&cs=tinysrgb&w=800',
-  'https://images.pexels.com/photos/2698935/pexels-photo-2698935.jpeg?auto=compress&cs=tinysrgb&w=800',
-  'https://images.pexels.com/photos/7078034/pexels-photo-7078034.jpeg?auto=compress&cs=tinysrgb&w=800',
-];
-
-function useRotatingBackground(images: string[], intervalMs = 5000) {
-  const [index, setIndex] = useState(0);
-  useEffect(() => {
-    // Preload all images for smooth transitions
-    images.forEach((src) => {
-      const img = new Image();
-      img.src = src;
-    });
-    const timer = setInterval(() => {
-      setIndex((prev) => (prev + 1) % images.length);
-    }, intervalMs);
-    return () => clearInterval(timer);
-  }, [images, intervalMs]);
-  return index;
-}
+const backgroundImage = 'https://images.pexels.com/photos/263402/pexels-photo-263402.jpeg?auto=compress&cs=tinysrgb&w=800';
 
 function PhoneIllustration() {
   return (
@@ -105,25 +82,15 @@ function PhoneIllustration() {
 }
 
 export function PromoCard() {
-  const currentBg = useRotatingBackground(backgroundImages, 5000);
-
   return (
     <div className="w-full max-w-md mx-auto mt-10">
       <div className="relative border border-gray-200 rounded-[22px] overflow-hidden shadow-[0_4px_24px_rgba(0,0,0,0.12)]">
-        {/* Animated cross-fading background images */}
+        {/* Background image */}
         <div className="absolute inset-0 z-0">
-          {backgroundImages.map((src, i) => (
-            <div
-              key={src}
-              className="absolute inset-0 bg-cover bg-center transition-opacity duration-[2000ms] ease-in-out"
-              style={{
-                backgroundImage: `url(${src})`,
-                opacity: i === currentBg ? 1 : 0,
-                transform: i === currentBg ? 'scale(1.08)' : 'scale(1)',
-                transition: 'opacity 2s ease-in-out, transform 6s ease-out',
-              }}
-            />
-          ))}
+          <div
+            className="absolute inset-0 bg-cover bg-center"
+            style={{ backgroundImage: `url(${backgroundImage})` }}
+          />
           {/* Dark gradient overlay for readability */}
           <div className="absolute inset-0 bg-gradient-to-br from-[#0F172A]/92 via-[#0F172A]/85 to-[#E53935]/30" />
           {/* Subtle texture/vignette */}
@@ -187,3 +154,5 @@ export function PromoCard() {
     </div>
   );
 }
+
+export { PromoCard }
