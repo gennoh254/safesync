@@ -1,10 +1,35 @@
 import { Zap, Navigation, ShieldCheck, Bell, MapPin, Smartphone } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 const features = [
   { icon: Zap, label: 'Real-time Alerts', color: 'text-red-500', bg: 'bg-red-50' },
   { icon: Navigation, label: 'Nearby Responders', color: 'text-blue-500', bg: 'bg-blue-50' },
   { icon: ShieldCheck, label: 'Community Protection', color: 'text-green-500', bg: 'bg-green-50' },
 ];
+
+// Emergency-response themed stock photos from Pexels
+const backgroundImages = [
+  'https://images.pexels.com/photos/630335/pexels-photo-630335.jpeg?auto=compress&cs=tinysrgb&w=800',
+  'https://images.pexels.com/photos/263402/pexels-photo-263402.jpeg?auto=compress&cs=tinysrgb&w=800',
+  'https://images.pexels.com/photos/2698935/pexels-photo-2698935.jpeg?auto=compress&cs=tinysrgb&w=800',
+  'https://images.pexels.com/photos/7078034/pexels-photo-7078034.jpeg?auto=compress&cs=tinysrgb&w=800',
+];
+
+function useRotatingBackground(images: string[], intervalMs = 5000) {
+  const [index, setIndex] = useState(0);
+  useEffect(() => {
+    // Preload all images for smooth transitions
+    images.forEach((src) => {
+      const img = new Image();
+      img.src = src;
+    });
+    const timer = setInterval(() => {
+      setIndex((prev) => (prev + 1) % images.length);
+    }, intervalMs);
+    return () => clearInterval(timer);
+  }, [images, intervalMs]);
+  return index;
+}
 
 function PhoneIllustration() {
   return (
@@ -80,21 +105,43 @@ function PhoneIllustration() {
 }
 
 export function PromoCard() {
+  const currentBg = useRotatingBackground(backgroundImages, 5000);
+
   return (
     <div className="w-full max-w-md mx-auto mt-10">
-      <div className="bg-white border border-gray-200 rounded-[22px] overflow-hidden shadow-[0_2px_12px_rgba(0,0,0,0.04)]">
-        {/* Top accent bar */}
-        <div className="h-1 bg-gradient-to-r from-red-500 via-red-600 to-red-500" />
+      <div className="relative border border-gray-200 rounded-[22px] overflow-hidden shadow-[0_4px_24px_rgba(0,0,0,0.12)]">
+        {/* Animated cross-fading background images */}
+        <div className="absolute inset-0 z-0">
+          {backgroundImages.map((src, i) => (
+            <div
+              key={src}
+              className="absolute inset-0 bg-cover bg-center transition-opacity duration-[2000ms] ease-in-out"
+              style={{
+                backgroundImage: `url(${src})`,
+                opacity: i === currentBg ? 1 : 0,
+                transform: i === currentBg ? 'scale(1.08)' : 'scale(1)',
+                transition: 'opacity 2s ease-in-out, transform 6s ease-out',
+              }}
+            />
+          ))}
+          {/* Dark gradient overlay for readability */}
+          <div className="absolute inset-0 bg-gradient-to-br from-[#0F172A]/92 via-[#0F172A]/85 to-[#E53935]/30" />
+          {/* Subtle texture/vignette */}
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_40%,rgba(0,0,0,0.4)_100%)]" />
+        </div>
 
-        <div className="p-6 sm:p-7">
+        {/* Top accent bar */}
+        <div className="relative z-10 h-1 bg-gradient-to-r from-red-500 via-red-600 to-red-500" />
+
+        <div className="relative z-10 p-6 sm:p-7">
           {/* Branding */}
           <div className="flex items-center gap-2 mb-4">
-            <div className="w-9 h-9 bg-[#0F172A] rounded-xl flex items-center justify-center shrink-0">
+            <div className="w-9 h-9 bg-white/15 backdrop-blur-md rounded-xl flex items-center justify-center shrink-0 border border-white/20">
               <ShieldCheck className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-[#0F172A] leading-tight tracking-tight">SafeSync</h3>
-              <p className="text-[11px] font-semibold text-red-500 uppercase tracking-wider leading-tight">Your Safety. Our Priority.</p>
+              <h3 className="text-lg font-bold text-white leading-tight tracking-tight">SafeSync</h3>
+              <p className="text-[11px] font-semibold text-red-300 uppercase tracking-wider leading-tight">Your Safety. Our Priority.</p>
             </div>
           </div>
 
@@ -102,7 +149,7 @@ export function PromoCard() {
           <div className="flex flex-col sm:flex-row gap-5 items-center">
             {/* Left: description + features */}
             <div className="flex-1 min-w-0">
-              <p className="text-sm text-gray-600 leading-relaxed mb-5">
+              <p className="text-sm text-gray-200 leading-relaxed mb-5">
                 SafeSync instantly connects you with nearby emergency responders, helping you receive assistance faster during medical emergencies, fires, accidents, security incidents, and other crises.
               </p>
 
@@ -110,10 +157,10 @@ export function PromoCard() {
               <div className="space-y-3">
                 {features.map((f) => (
                   <div key={f.label} className="flex items-center gap-3">
-                    <div className={`w-9 h-9 ${f.bg} rounded-xl flex items-center justify-center shrink-0`}>
+                    <div className={`w-9 h-9 ${f.bg} rounded-xl flex items-center justify-center shrink-0 shadow-md`}>
                       <f.icon className={`w-4.5 h-4.5 ${f.color}`} strokeWidth={2} />
                     </div>
-                    <span className="text-sm font-semibold text-gray-700">{f.label}</span>
+                    <span className="text-sm font-semibold text-white">{f.label}</span>
                   </div>
                 ))}
               </div>
@@ -131,7 +178,7 @@ export function PromoCard() {
           </div>
 
           {/* CTA button */}
-          <button className="w-full mt-6 bg-[#E53935] hover:bg-[#D32F2F] text-white font-bold py-3.5 rounded-xl transition-all text-sm tracking-wide shadow-sm hover:shadow-md flex items-center justify-center gap-2">
+          <button className="w-full mt-6 bg-[#E53935] hover:bg-[#D32F2F] text-white font-bold py-3.5 rounded-xl transition-all text-sm tracking-wide shadow-lg hover:shadow-xl flex items-center justify-center gap-2">
             <Smartphone className="w-4 h-4" />
             Stay Alert. Stay Safe. SafeSync.
           </button>
@@ -140,3 +187,6 @@ export function PromoCard() {
     </div>
   );
 }
+
+
+export { PromoCard }
