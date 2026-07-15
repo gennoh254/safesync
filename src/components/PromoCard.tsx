@@ -117,7 +117,7 @@ export function PromoCard() {
             {/* Left: description + features */}
             <div className="flex-1 min-w-0">
               <p className="text-sm text-gray-200 leading-relaxed mb-5">
-                SafeSync instantly connects you with nearby emergency responders, helping you receive assistance faster during medical emergencies, fires, accidents, security incidents, and other crises.
+                SafeSync instantly connects you with nearby emergency responders, enhancing rapid emergency response when it matters most during medical emergencies, fires, accidents, security incidents, and other crises.
               </p>
 
               {/* Feature icons */}
