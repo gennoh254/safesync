@@ -187,6 +187,3 @@ export function PromoCard() {
     </div>
   );
 }
-
-
-export { PromoCard }
