@@ -4,7 +4,6 @@ import { AlertSentDashboard } from './AlertSentDashboard';
 import { ClientMap } from './ClientMap';
 import { AlertDetailView } from './AlertDetailView';
 import { ClientAccounts } from './ClientAccounts';
-import { PromoCard } from './PromoCard';
 import { supabase } from '../lib/supabase';
 
 interface HomeDashboardProps {
@@ -356,7 +355,7 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
     }
 
   return (
-    <div className={`flex flex-col lg:flex-row flex-grow w-full h-screen overflow-hidden ${darkMode ? 'bg-black text-white' : 'bg-white text-black'} font-sans`}>
+    <div className={`flex flex-col lg:flex-row flex-grow w-full h-screen ${darkMode ? 'bg-black text-white' : 'bg-white text-black'} font-sans`}>
       {/* Sidebar for Desktop */}
       <nav className="hidden lg:flex flex-col w-64 border-r bg-[#0B1727] border-slate-800 p-6 text-white">
         <h1 className="text-xl font-bold mb-10">SafeSync</h1>
@@ -371,7 +370,7 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
       </nav>
 
       {/* Main Content */}
-      <div className="relative flex-grow flex flex-col p-8 overflow-y-auto w-full max-w-7xl mx-auto min-h-0">
+      <div className="relative flex-grow flex flex-col p-8 overflow-hidden w-full max-w-7xl mx-auto">
         {activeTab === 'home' && (
           <div className="flex flex-col lg:flex-row flex-grow lg:gap-8">
             <div className="flex flex-col w-full lg:max-w-2xl">
@@ -525,9 +524,6 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
                     </div>
                   )}
               </div>
-
-              {/* Promotional Information Card */}
-              <PromoCard />
             </div>
           </div>
         )}
