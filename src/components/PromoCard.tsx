@@ -1,9 +1,7 @@
-import { Zap, Navigation, ShieldCheck, Bell, MapPin, Smartphone } from 'lucide-react';
+import { Navigation, ShieldCheck, Bell, MapPin, Smartphone } from 'lucide-react';
 
 const features = [
-  { icon: Zap, label: 'Real-time Alerts', color: 'text-red-500', bg: 'bg-red-50' },
   { icon: Navigation, label: 'Nearby Responders', color: 'text-blue-500', bg: 'bg-blue-50' },
-  { icon: ShieldCheck, label: 'Community Protection', color: 'text-green-500', bg: 'bg-green-50' },
 ];
 
 const backgroundImage = 'https://images.pexels.com/photos/263402/pexels-photo-263402.jpeg?auto=compress&cs=tinysrgb&w=800';

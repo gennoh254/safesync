@@ -5,6 +5,7 @@ import { ClientMap } from './ClientMap';
 import { AlertDetailView } from './AlertDetailView';
 import { ClientAccounts } from './ClientAccounts';
 import { PromoCard } from './PromoCard';
+import { NearbyRespondersDropdown } from './NearbyRespondersDropdown';
 import { supabase } from '../lib/supabase';
 
 interface HomeDashboardProps {
@@ -528,6 +529,7 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
 
               {/* Promotional Information Card */}
               <PromoCard />
+              <NearbyRespondersDropdown />
             </div>
           </div>
         )}
