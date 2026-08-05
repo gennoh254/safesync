@@ -54,7 +54,11 @@ function EmergencyTypeBadge({ types }: { types: string[] }) {
   );
 }
 
-export function NearbyRespondersDropdown() {
+interface NearbyRespondersDropdownProps {
+  onNavigateToMap?: () => void;
+}
+
+export function NearbyRespondersDropdown({ onNavigateToMap }: NearbyRespondersDropdownProps = {}) {
   const [isOpen, setIsOpen] = useState(false);
   const [responders, setResponders] = useState<NearbyResponder[]>([]);
   const [loading, setLoading] = useState(false);
@@ -222,20 +226,35 @@ export function NearbyRespondersDropdown() {
                         <EmergencyTypeBadge types={r.response_types} />
                       </div>
 
-                      {/* Contact */}
-                      <div className="flex items-center gap-2">
-                        <Phone className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                        <span className="text-sm text-gray-700">{r.phone || 'No phone number'}</span>
-                      </div>
+                      {/* Contact + Location actions */}
+                      <div className="flex items-center gap-3">
+                        {r.phone ? (
+                          <a
+                            href={`tel:${r.phone}`}
+                            className="w-9 h-9 bg-green-50 hover:bg-green-100 rounded-full flex items-center justify-center transition-colors group"
+                            title={`Call ${r.phone}`}
+                          >
+                            <Phone className="w-4 h-4 text-green-600 group-hover:scale-110 transition-transform" />
+                          </a>
+                        ) : (
+                          <div className="w-9 h-9 bg-gray-50 rounded-full flex items-center justify-center" title="No phone number">
+                            <Phone className="w-4 h-4 text-gray-300" />
+                          </div>
+                        )}
 
-                      {/* Location */}
-                      <div className="flex items-center gap-2">
-                        <MapPin className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                        <span className="text-sm text-gray-700">
-                          {r.latitude != null && r.longitude != null
-                            ? `${r.latitude.toFixed(4)}, ${r.longitude.toFixed(4)}`
-                            : 'Location not shared'}
-                        </span>
+                        {r.latitude != null && r.longitude != null ? (
+                          <button
+                            onClick={() => onNavigateToMap?.()}
+                            className="w-9 h-9 bg-blue-50 hover:bg-blue-100 rounded-full flex items-center justify-center transition-colors group"
+                            title="View on map"
+                          >
+                            <MapPin className="w-4 h-4 text-blue-600 group-hover:scale-110 transition-transform" />
+                          </button>
+                        ) : (
+                          <div className="w-9 h-9 bg-gray-50 rounded-full flex items-center justify-center" title="Location not shared">
+                            <MapPin className="w-4 h-4 text-gray-300" />
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

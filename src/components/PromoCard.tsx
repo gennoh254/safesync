@@ -1,8 +1,4 @@
-import { Navigation, ShieldCheck, Bell, MapPin, Smartphone } from 'lucide-react';
-
-const features = [
-  { icon: Navigation, label: 'Nearby Responders', color: 'text-blue-500', bg: 'bg-blue-50' },
-];
+import { ShieldCheck, Bell, MapPin, Navigation } from 'lucide-react';
 
 const backgroundImage = 'https://images.pexels.com/photos/263402/pexels-photo-263402.jpeg?auto=compress&cs=tinysrgb&w=800';
 
@@ -112,23 +108,11 @@ export function PromoCard() {
 
           {/* Two-column layout: text + phone illustration */}
           <div className="flex flex-col sm:flex-row gap-5 items-center">
-            {/* Left: description + features */}
+            {/* Left: description */}
             <div className="flex-1 min-w-0">
-              <p className="text-sm text-gray-200 leading-relaxed mb-5">
+              <p className="text-sm text-gray-200 leading-relaxed">
                 SafeSync instantly connects you with nearby emergency responders, enhancing rapid emergency response when it matters most during medical emergencies, fires, accidents, security incidents, and other crises.
               </p>
-
-              {/* Feature icons */}
-              <div className="space-y-3">
-                {features.map((f) => (
-                  <div key={f.label} className="flex items-center gap-3">
-                    <div className={`w-9 h-9 ${f.bg} rounded-xl flex items-center justify-center shrink-0 shadow-md`}>
-                      <f.icon className={`w-4.5 h-4.5 ${f.color}`} strokeWidth={2} />
-                    </div>
-                    <span className="text-sm font-semibold text-white">{f.label}</span>
-                  </div>
-                ))}
-              </div>
             </div>
 
             {/* Right: phone illustration */}
@@ -141,12 +125,6 @@ export function PromoCard() {
           <div className="sm:hidden flex justify-center mt-5">
             <PhoneIllustration />
           </div>
-
-          {/* CTA button */}
-          <button className="w-full mt-6 bg-[#E53935] hover:bg-[#D32F2F] text-white font-bold py-3.5 rounded-xl transition-all text-sm tracking-wide shadow-lg hover:shadow-xl flex items-center justify-center gap-2">
-            <Smartphone className="w-4 h-4" />
-            Stay Alert. Stay Safe. SafeSync.
-          </button>
         </div>
       </div>
     </div>

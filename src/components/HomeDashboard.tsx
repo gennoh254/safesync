@@ -529,7 +529,7 @@ export function HomeDashboard({ onLogout }: HomeDashboardProps) {
 
               {/* Promotional Information Card */}
               <PromoCard />
-              <NearbyRespondersDropdown />
+              <NearbyRespondersDropdown onNavigateToMap={() => setActiveTab('map')} />
             </div>
           </div>
         )}
