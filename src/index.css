@@ -75,3 +75,18 @@
     padding-top: env(safe-area-inset-top, 0px);
   }
 }
+
+/* Dark scrollbar for nearby responders dropdown */
+.custom-scroll-dark::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-scroll-dark::-webkit-scrollbar-track {
+  background: rgba(15, 7, 7, 0.5);
+}
+.custom-scroll-dark::-webkit-scrollbar-thumb {
+  background: rgba(185, 28, 28, 0.4);
+  border-radius: 3px;
+}
+.custom-scroll-dark::-webkit-scrollbar-thumb:hover {
+  background: rgba(185, 28, 28, 0.6);
+}
