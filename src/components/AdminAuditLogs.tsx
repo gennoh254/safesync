@@ -7,7 +7,8 @@ interface Profile {
   id: string;
   name: string;
   email: string;
-  user_type: 'Client' | 'Responder';
+  phone: string;
+  user_type: 'Client' | 'Responder' | 'Administrator';
 }
 
 interface Alert {
@@ -17,6 +18,8 @@ interface Alert {
   status: string;
   created_at: string;
   updated_at: string;
+  resolved_at?: string | null;
+  current_responder_id?: string | null;
   client_id: string;
   client?: Profile;
   responder?: Profile;
@@ -56,16 +59,18 @@ export function AdminAuditLogs() {
 
       if (fetchError) throw fetchError;
 
-      const alertsWithProfiles = await Promise.all(
-        (alertsData || []).map(async (alert) => {
-          const { data: client } = await supabase
-            .from('profiles')
-            .select('id, name, email, user_type')
-            .eq('id', alert.client_id)
-            .maybeSingle();
-          return { ...alert, client: client || undefined } as Alert;
-        })
-      );
+      const profileIds = [...new Set((alertsData || []).flatMap((alert) => [alert.client_id, alert.current_responder_id].filter(Boolean)))];
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, name, email, phone, user_type')
+        .in('id', profileIds);
+      if (profilesError) throw profilesError;
+      const profileMap = new Map((profiles || []).map((profile) => [profile.id, profile]));
+      const alertsWithProfiles = (alertsData || []).map((alert) => ({
+        ...alert,
+        client: profileMap.get(alert.client_id),
+        responder: alert.current_responder_id ? profileMap.get(alert.current_responder_id) : undefined,
+      } as Alert));
 
       setAlerts(alertsWithProfiles);
     } catch (err: any) {
@@ -76,16 +81,16 @@ export function AdminAuditLogs() {
     }
   };
 
-  const calculateDuration = (createdAt: string, updatedAt: string, status: string) => {
-    if (status === 'ACTIVE') return 'In progress...';
-    const diff = new Date(updatedAt).getTime() - new Date(createdAt).getTime();
+  const calculateDuration = (createdAt: string, updatedAt: string | null | undefined, status: string) => {
+    if (status !== 'RESOLVED') return 'In progress...';
+    const diff = new Date(updatedAt || createdAt).getTime() - new Date(createdAt).getTime();
     const minutes = Math.floor(diff / 60000);
     const seconds = Math.floor((diff % 60000) / 1000);
     return `${minutes}m ${seconds}s`;
   };
 
   const exportToCSV = () => {
-    const headers = ['Log ID', 'Sender', 'Sender Email', 'Responder', 'Location', 'Emergency Type', 'Created', 'Duration', 'Status'];
+    const headers = ['Log ID', 'Sender', 'Sender Email', 'Sender Contact', 'Responder', 'Responder Contact', 'Location', 'Emergency Type', 'Created', 'Duration', 'Status'];
     const csvRows = [
       headers.join(','),
       ...filteredAlerts.map((a) =>
@@ -93,11 +98,13 @@ export function AdminAuditLogs() {
           a.id,
           a.client?.name || 'Unknown',
           a.client?.email || '',
+          a.client?.phone || '',
           a.responder?.name || 'Unassigned',
+          a.responder?.phone || '',
           a.location,
           a.emergency_type,
           new Date(a.created_at).toLocaleString(),
-          calculateDuration(a.created_at, a.updated_at, a.status),
+          calculateDuration(a.created_at, a.resolved_at, a.status),
           a.status,
         ].join(',')
       ),
@@ -194,10 +201,12 @@ export function AdminAuditLogs() {
                 <td className="p-3">
                   <div className="font-bold">{alert.client?.name || 'Unknown'}</div>
                   <div className="text-xs text-gray-500">{alert.client?.email || '-'}</div>
+                  <div className="text-xs text-gray-500">{alert.client?.phone || '-'}</div>
                 </td>
                 <td className="p-3">
                   <div className="font-bold">{alert.responder?.name || 'Unassigned'}</div>
                   <div className="text-xs text-gray-500">{alert.responder?.email || '-'}</div>
+                  <div className="text-xs text-gray-500">{alert.responder?.phone || '-'}</div>
                 </td>
                 <td className="p-3 text-gray-600">{alert.location || 'Unknown'}</td>
                 <td className="p-3">
@@ -206,7 +215,7 @@ export function AdminAuditLogs() {
                   </span>
                 </td>
                 <td className="p-3 text-gray-600 text-sm">{new Date(alert.created_at).toLocaleString()}</td>
-                <td className="p-3 text-gray-600">{calculateDuration(alert.created_at, alert.updated_at, alert.status)}</td>
+                <td className="p-3 text-gray-600">{calculateDuration(alert.created_at, alert.resolved_at, alert.status)}</td>
                 <td className="p-3">
                   <span className={`px-2 py-1 rounded text-xs ${getStatusColor(alert.status)}`}>
                     {alert.status}

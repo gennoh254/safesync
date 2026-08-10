@@ -7,8 +7,11 @@ interface Profile {
   id: string;
   name: string;
   email: string;
-  user_type: 'Client' | 'Responder';
+  phone: string;
+  user_type: 'Client' | 'Responder' | 'Administrator';
   company: string;
+  organization_name?: string;
+  invited_by?: string | null;
 }
 
 interface Alert {
@@ -20,7 +23,9 @@ interface Alert {
   status: string;
   created_at: string;
   updated_at: string;
+  resolved_at?: string | null;
   client_id: string;
+  current_responder_id?: string | null;
   client?: Profile;
   responder?: Profile;
 }
@@ -64,17 +69,18 @@ export function AdminDashboard() {
 
       if (alertsError) throw alertsError;
 
-      const alertsWithProfiles = await Promise.all(
-        (alertsData || []).map(async (alert) => {
-          const { data: client } = await supabase
-            .from('profiles')
-            .select('id, name, email, user_type, company')
-            .eq('id', alert.client_id)
-            .maybeSingle();
-
-          return { ...alert, client: client || undefined } as Alert;
-        })
-      );
+      const profileIds = [...new Set((alertsData || []).flatMap((alert) => [alert.client_id, alert.current_responder_id].filter(Boolean)))];
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, name, email, phone, user_type, company, organization_name, invited_by')
+        .in('id', profileIds);
+      if (profilesError) throw profilesError;
+      const profileMap = new Map((profiles || []).map((profile) => [profile.id, profile]));
+      const alertsWithProfiles = (alertsData || []).map((alert) => ({
+        ...alert,
+        client: profileMap.get(alert.client_id),
+        responder: alert.current_responder_id ? profileMap.get(alert.current_responder_id) : undefined,
+      } as Alert));
 
       setAlerts(alertsWithProfiles);
 
@@ -113,11 +119,11 @@ export function AdminDashboard() {
   };
 
   const exportToCSV = () => {
-    const headers = ['ID', 'Type', 'Location', 'Time', 'Status', 'Sender', 'Sender Email'];
+    const headers = ['ID', 'Type', 'Location', 'Time', 'Status', 'Sender', 'Sender Email', 'Sender Contact', 'Responder', 'Responder Contact'];
     const csvRows = [
       headers.join(','),
       ...alerts.map((a) =>
-        [a.id, a.emergency_type, a.location, new Date(a.created_at).toLocaleString(), a.status, a.client?.name || 'Unknown', a.client?.email || ''].join(',')
+        [a.id, a.emergency_type, a.location, new Date(a.created_at).toLocaleString(), a.status, a.client?.name || 'Unknown', a.client?.email || '', a.client?.phone || '', a.responder?.name || 'Unassigned', a.responder?.phone || ''].join(',')
       ),
     ];
     const csvString = csvRows.join('\n');
@@ -245,8 +251,8 @@ export function AdminDashboard() {
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-sm text-gray-600">
                         <div className="flex items-center gap-1"><MapPin className="w-3 h-3" /> {alert.location || 'Unknown'}</div>
                         <div className="flex items-center gap-1"><Clock className="w-3 h-3" /> {formatTime(alert.created_at)}</div>
-                        <div><strong>Sender:</strong> {alert.client?.name || 'Unknown'} {alert.client?.email && <span className="text-xs text-gray-400">({alert.client.email})</span>}</div>
-                        <div><strong>Responder:</strong> {alert.responder?.name || 'Unassigned'}</div>
+                        <div><strong>Sender:</strong> {alert.client?.name || 'Unknown'} <span className="text-xs text-gray-400">{alert.client?.phone || alert.client?.email || 'No contact'}</span></div>
+                        <div><strong>Responder:</strong> {alert.responder?.name || 'Unassigned'} <span className="text-xs text-gray-400">{alert.responder?.phone || alert.responder?.email || (alert.current_responder_id ? 'No contact' : '')}</span></div>
                     </div>
                 </div>
               ))

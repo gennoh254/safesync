@@ -7,8 +7,11 @@ interface Profile {
   id: string;
   name: string;
   email: string;
-  user_type: 'Client' | 'Responder';
+  phone: string;
+  user_type: 'Client' | 'Responder' | 'Administrator';
   company: string;
+  organization_name?: string;
+  invited_by?: string | null;
   created_at: string;
 }
 
@@ -42,7 +45,7 @@ export function AdminUserManagement() {
     try {
       const { data, error: fetchError } = await supabase
         .from('profiles')
-        .select('id, name, email, user_type, company, created_at')
+        .select('id, name, email, phone, user_type, company, organization_name, invited_by, created_at')
         .order('created_at', { ascending: false });
 
       if (fetchError) throw fetchError;
@@ -149,6 +152,7 @@ export function AdminUserManagement() {
             <tr className={`border-b ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
               <th className="p-3">Name</th>
               <th className="p-3">Email</th>
+              <th className="p-3">Contact</th>
               <th className="p-3">Type</th>
               <th className="p-3">Company</th>
               <th className="p-3">Joined</th>
@@ -160,12 +164,16 @@ export function AdminUserManagement() {
               <tr key={user.id} className={`border-b ${darkMode ? 'border-gray-800' : 'border-gray-100'}`}>
                 <td className="p-3 font-bold">{user.name || 'Unknown'}</td>
                 <td className="p-3 text-gray-500">{user.email}</td>
+                <td className="p-3 text-gray-500">{user.phone || '-'}</td>
                 <td className="p-3">
                   <span className={`px-2 py-1 rounded text-xs font-bold ${user.user_type === 'Client' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
                     {user.user_type}
                   </span>
                 </td>
-                <td className="p-3 text-gray-500">{user.company || '-'}</td>
+                <td className="p-3 text-gray-500">
+                  {user.organization_name || user.company || '-'}
+                  {user.user_type === 'Responder' && user.organization_name && !user.invited_by && <span className="block text-xs text-red-500">(Organisation admin)</span>}
+                </td>
                 <td className="p-3 text-gray-500 text-sm">{new Date(user.created_at).toLocaleDateString()}</td>
                 <td className="p-3 flex gap-2">
                   <button className="text-green-600 hover:text-green-800" title="Verify"><UserCheck className="w-5 h-5" /></button>
