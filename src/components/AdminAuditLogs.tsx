@@ -1,4 +1,4 @@
-import { ClipboardList, Loader as Loader2, Download, Search } from 'lucide-react';
+import { ClipboardList, Loader as Loader2, Download, Search, MapPin } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../context/ThemeContext';
@@ -15,6 +15,8 @@ interface Alert {
   id: string;
   emergency_type: string;
   location: string;
+  latitude: number | null;
+  longitude: number | null;
   status: string;
   created_at: string;
   updated_at: string;
@@ -25,7 +27,11 @@ interface Alert {
   responder?: Profile;
 }
 
-export function AdminAuditLogs() {
+interface AdminAuditLogsProps {
+  onNavigateToMap?: (focus: { lat: number; lng: number; label?: string }) => void;
+}
+
+export function AdminAuditLogs({ onNavigateToMap }: AdminAuditLogsProps = {}) {
   const { theme } = useTheme();
   const darkMode = theme === 'dark';
 
@@ -208,7 +214,20 @@ export function AdminAuditLogs() {
                   <div className="text-xs text-gray-500">{alert.responder?.email || '-'}</div>
                   <div className="text-xs text-gray-500">{alert.responder?.phone || '-'}</div>
                 </td>
-                <td className="p-3 text-gray-600">{alert.location || 'Unknown'}</td>
+                <td className="p-3 text-gray-600">
+                  {alert.latitude != null && alert.longitude != null ? (
+                    <button
+                      onClick={() => onNavigateToMap?.({ lat: alert.latitude!, lng: alert.longitude!, label: alert.location || alert.emergency_type })}
+                      className="text-red-600 hover:text-red-700 hover:underline cursor-pointer flex items-center gap-1"
+                    >
+                      <MapPin className="w-3 h-3" />
+                      {alert.location || 'Unknown'}
+                      <span className="text-xs text-gray-400">({alert.latitude.toFixed(4)}, {alert.longitude.toFixed(4)})</span>
+                    </button>
+                  ) : (
+                    <span>{alert.location || 'Unknown'}</span>
+                  )}
+                </td>
                 <td className="p-3">
                   <span className={`px-2 py-1 rounded text-xs ${alert.emergency_type === 'FIRE' ? 'bg-orange-100 text-orange-700' : alert.emergency_type === 'MEDICAL' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'}`}>
                     {alert.emergency_type}

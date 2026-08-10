@@ -11,10 +11,22 @@ interface AdminLayoutProps {
   onExit: () => void;
 }
 
+export interface MapFocus {
+  lat: number;
+  lng: number;
+  label?: string;
+}
+
 export function AdminLayout({ onExit }: AdminLayoutProps) {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [mapFocus, setMapFocus] = useState<MapFocus | null>(null);
   const { theme } = useTheme();
   const darkMode = theme === 'dark';
+
+  const navigateToMap = (focus: MapFocus) => {
+    setMapFocus(focus);
+    setActiveTab('map');
+  };
 
   return (
     <div className={`flex h-screen w-full ${darkMode ? 'bg-gray-950 text-white' : 'bg-gray-100 text-black'}`}>
@@ -32,10 +44,10 @@ export function AdminLayout({ onExit }: AdminLayoutProps) {
         </nav>
       </aside>
       <main className="flex-grow p-8 overflow-y-auto">
-        {activeTab === 'dashboard' && <AdminDashboard />}
+        {activeTab === 'dashboard' && <AdminDashboard onNavigateToMap={navigateToMap} />}
         {activeTab === 'users' && <AdminUserManagement />}
-        {activeTab === 'logs' && <AdminAuditLogs />}
-        {activeTab === 'map' && <AdminLiveMap />}
+        {activeTab === 'logs' && <AdminAuditLogs onNavigateToMap={navigateToMap} />}
+        {activeTab === 'map' && <AdminLiveMap focusLocation={mapFocus} onFocusConsumed={() => setMapFocus(null)} />}
         {activeTab === 'settings' && <AdminSettings />}
       </main>
     </div>

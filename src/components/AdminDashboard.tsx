@@ -30,7 +30,11 @@ interface Alert {
   responder?: Profile;
 }
 
-export function AdminDashboard() {
+interface AdminDashboardProps {
+  onNavigateToMap?: (focus: { lat: number; lng: number; label?: string }) => void;
+}
+
+export function AdminDashboard({ onNavigateToMap }: AdminDashboardProps = {}) {
   const { theme } = useTheme();
   const darkMode = theme === 'dark';
 
@@ -249,7 +253,19 @@ export function AdminDashboard() {
                         </span>
                     </div>
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-sm text-gray-600">
-                        <div className="flex items-center gap-1"><MapPin className="w-3 h-3" /> {alert.location || 'Unknown'}</div>
+                        <div className="flex items-center gap-1">
+                          <MapPin className="w-3 h-3" />
+                          {alert.latitude != null && alert.longitude != null ? (
+                            <button
+                              onClick={() => onNavigateToMap?.({ lat: alert.latitude!, lng: alert.longitude!, label: alert.location || alert.emergency_type })}
+                              className="text-red-600 hover:text-red-700 hover:underline cursor-pointer"
+                            >
+                              {alert.location || 'Unknown'} ({alert.latitude.toFixed(4)}, {alert.longitude.toFixed(4)})
+                            </button>
+                          ) : (
+                            <span>{alert.location || 'Unknown'}</span>
+                          )}
+                        </div>
                         <div className="flex items-center gap-1"><Clock className="w-3 h-3" /> {formatTime(alert.created_at)}</div>
                         <div><strong>Sender:</strong> {alert.client?.name || 'Unknown'} <span className="text-xs text-gray-400">{alert.client?.phone || alert.client?.email || 'No contact'}</span></div>
                         <div><strong>Responder:</strong> {alert.responder?.name || 'Unassigned'} <span className="text-xs text-gray-400">{alert.responder?.phone || alert.responder?.email || (alert.current_responder_id ? 'No contact' : '')}</span></div>

@@ -1,8 +1,9 @@
 import { APIProvider, Map, AdvancedMarker } from '@vis.gl/react-google-maps';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import { Loader as Loader2, Hop as Home, Navigation, Flame, HeartPulse, CircleAlert as AlertTriangle, User } from 'lucide-react';
+import { Loader as Loader2, Hop as Home, Navigation, Flame, HeartPulse, CircleAlert as AlertTriangle, User, MapPin } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
+import type { MapFocus } from './AdminLayout';
 
 const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_PLATFORM_KEY || process.env.GOOGLE_MAPS_PLATFORM_KEY || '';
 
@@ -10,6 +11,7 @@ interface Profile {
   id: string;
   name: string;
   email: string;
+  phone?: string;
   user_type: 'Client' | 'Responder';
   latitude: number | null;
   longitude: number | null;
@@ -27,7 +29,12 @@ interface Alert {
   created_at: string;
 }
 
-export function AdminLiveMap() {
+interface AdminLiveMapProps {
+  focusLocation?: MapFocus | null;
+  onFocusConsumed?: () => void;
+}
+
+export function AdminLiveMap({ focusLocation, onFocusConsumed }: AdminLiveMapProps) {
   const { theme } = useTheme();
   const darkMode = theme === 'dark';
 
@@ -37,8 +44,11 @@ export function AdminLiveMap() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [center, setCenter] = useState({ lat: -1.2921, lng: 36.8219 });
+  const [zoom, setZoom] = useState(13);
   const [selectedUser, setSelectedUser] = useState<Profile | null>(null);
   const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
+  const [focusLabel, setFocusLabel] = useState<string | null>(null);
+  const consumedRef = useRef<string | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -58,7 +68,6 @@ export function AdminLiveMap() {
       })
       .subscribe();
 
-    // Periodically refresh locations
     const interval = setInterval(fetchData, 30000);
 
     return () => {
@@ -67,23 +76,36 @@ export function AdminLiveMap() {
     };
   }, []);
 
+  // Recenter the map when a focus location arrives from another admin page
+  useEffect(() => {
+    if (!focusLocation) return;
+    const key = `${focusLocation.lat.toFixed(5)},${focusLocation.lng.toFixed(5)}`;
+    if (consumedRef.current === key) return;
+    consumedRef.current = key;
+
+    setCenter({ lat: focusLocation.lat, lng: focusLocation.lng });
+    setZoom(16);
+    setFocusLabel(focusLocation.label || null);
+    onFocusConsumed?.();
+  }, [focusLocation, onFocusConsumed]);
+
   const fetchData = async () => {
     try {
-      const { data: clientsData, error: clientsError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('user_type', 'Client')
-        .not('latitude', 'is', null);
-      if (clientsError) throw clientsError;
-      setClients((clientsData || []) as Profile[]);
-
       const { data: respondersData, error: respondersError } = await supabase
         .from('profiles')
-        .select('*')
+        .select('id, name, email, phone, user_type, latitude, longitude, last_location_update')
         .eq('user_type', 'Responder')
         .not('latitude', 'is', null);
       if (respondersError) throw respondersError;
       setResponders((respondersData || []) as Profile[]);
+
+      const { data: clientsData, error: clientsError } = await supabase
+        .from('profiles')
+        .select('id, name, email, phone, user_type, latitude, longitude, last_location_update')
+        .eq('user_type', 'Client')
+        .not('latitude', 'is', null);
+      if (clientsError) throw clientsError;
+      setClients((clientsData || []) as Profile[]);
 
       await fetchAlerts();
     } catch (err: any) {
@@ -108,6 +130,14 @@ export function AdminLiveMap() {
     }
   };
 
+  const focusOnPoint = (lat: number, lng: number, label?: string) => {
+    setCenter({ lat, lng });
+    setZoom(16);
+    setFocusLabel(label || null);
+    setSelectedUser(null);
+    setSelectedAlert(null);
+  };
+
   const getAlertIcon = (type: string) => {
     if (type === 'FIRE') return <Flame className="w-4 h-4 text-white" />;
     if (type === 'MEDICAL') return <HeartPulse className="w-4 h-4 text-white" />;
@@ -118,6 +148,11 @@ export function AdminLiveMap() {
     if (type === 'FIRE') return 'bg-orange-500';
     if (type === 'MEDICAL') return 'bg-red-600';
     return 'bg-yellow-500';
+  };
+
+  const formatCoord = (lat: number | null, lng: number | null) => {
+    if (lat == null || lng == null) return null;
+    return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
   };
 
   if (loading) {
@@ -157,65 +192,144 @@ export function AdminLiveMap() {
         </div>
       </div>
 
-      <div className="relative" style={{ height: '500px' }}>
-        <APIProvider apiKey={API_KEY} version="weekly">
-          <Map
-            defaultCenter={center}
-            defaultZoom={13}
-            mapId="ADMIN_MAP_ID"
-            style={{ width: '100%', height: '100%' }}
-            gestureHandling="greedy"
-            disableDefaultUI={false}
-            zoomControl={true}
-            mapTypeControl={true}
-            fullscreenControl={true}
-          >
-            {alerts.map((alert) => (
-              <AdvancedMarker
-                key={`alert-${alert.id}`}
-                position={{ lat: alert.latitude!, lng: alert.longitude! }}
-                onClick={() => setSelectedAlert(alert)}
-              >
-                <div className="relative cursor-pointer">
-                  <div className={`w-10 h-10 ${getAlertColor(alert.emergency_type)} rounded-full border-4 border-white shadow-lg flex items-center justify-center animate-pulse`}>
-                    {getAlertIcon(alert.emergency_type)}
+      <div className="flex flex-col lg:flex-row">
+        <div className="relative flex-grow" style={{ height: '500px' }}>
+          <APIProvider apiKey={API_KEY} version="weekly">
+            <Map
+              defaultCenter={center}
+              defaultZoom={zoom}
+              mapId="ADMIN_MAP_ID"
+              style={{ width: '100%', height: '100%' }}
+              gestureHandling="greedy"
+              disableDefaultUI={false}
+              zoomControl={true}
+              mapTypeControl={true}
+              fullscreenControl={true}
+            >
+              {alerts.map((alert) => (
+                <AdvancedMarker
+                  key={`alert-${alert.id}`}
+                  position={{ lat: alert.latitude!, lng: alert.longitude! }}
+                  onClick={() => { setSelectedAlert(alert); setSelectedUser(null); setFocusLabel(null); }}
+                >
+                  <div className="relative cursor-pointer">
+                    <div className={`w-10 h-10 ${getAlertColor(alert.emergency_type)} rounded-full border-4 border-white shadow-lg flex items-center justify-center animate-pulse`}>
+                      {getAlertIcon(alert.emergency_type)}
+                    </div>
                   </div>
-                </div>
-              </AdvancedMarker>
-            ))}
+                </AdvancedMarker>
+              ))}
 
-            {clients.map((client) => (
-              <AdvancedMarker
-                key={`client-${client.id}`}
-                position={{ lat: client.latitude!, lng: client.longitude! }}
-                onClick={() => setSelectedUser(client)}
-              >
-                <div className="relative cursor-pointer">
-                  <div className="w-8 h-8 bg-green-500 rounded-full border-3 border-white shadow-lg flex items-center justify-center">
-                    <Home className="w-4 h-4 text-white" />
+              {clients.map((client) => (
+                <AdvancedMarker
+                  key={`client-${client.id}`}
+                  position={{ lat: client.latitude!, lng: client.longitude! }}
+                  onClick={() => { setSelectedUser(client); setSelectedAlert(null); setFocusLabel(null); }}
+                >
+                  <div className="relative cursor-pointer">
+                    <div className="w-8 h-8 bg-green-500 rounded-full border-3 border-white shadow-lg flex items-center justify-center">
+                      <Home className="w-4 h-4 text-white" />
+                    </div>
                   </div>
-                </div>
-              </AdvancedMarker>
-            ))}
+                </AdvancedMarker>
+              ))}
 
-            {responders.map((responder) => (
-              <AdvancedMarker
-                key={`responder-${responder.id}`}
-                position={{ lat: responder.latitude!, lng: responder.longitude! }}
-                onClick={() => setSelectedUser(responder)}
-              >
-                <div className="relative cursor-pointer">
-                  <div className="w-8 h-8 bg-blue-500 rounded-full border-3 border-white shadow-lg flex items-center justify-center">
-                    <Navigation className="w-4 h-4 text-white" />
+              {responders.map((responder) => (
+                <AdvancedMarker
+                  key={`responder-${responder.id}`}
+                  position={{ lat: responder.latitude!, lng: responder.longitude! }}
+                  onClick={() => { setSelectedUser(responder); setSelectedAlert(null); setFocusLabel(null); }}
+                >
+                  <div className="relative cursor-pointer">
+                    <div className="w-8 h-8 bg-blue-500 rounded-full border-3 border-white shadow-lg flex items-center justify-center">
+                      <Navigation className="w-4 h-4 text-white" />
+                    </div>
                   </div>
-                </div>
-              </AdvancedMarker>
-            ))}
-          </Map>
-        </APIProvider>
+                </AdvancedMarker>
+              ))}
+            </Map>
+          </APIProvider>
 
-        <div className="absolute top-2 left-2 bg-white/90 backdrop-blur-sm px-3 py-1 rounded text-xs font-bold text-gray-700 shadow-sm">
-          LIVE TRACKING
+          <div className="absolute top-2 left-2 bg-white/90 backdrop-blur-sm px-3 py-1 rounded text-xs font-bold text-gray-700 shadow-sm">
+            LIVE TRACKING
+          </div>
+
+          {focusLabel && (
+            <div className="absolute bottom-2 left-2 bg-red-600/90 backdrop-blur-sm px-3 py-1.5 rounded text-xs font-bold text-white shadow-sm flex items-center gap-1.5">
+              <MapPin className="w-3.5 h-3.5" />
+              {focusLabel}
+            </div>
+          )}
+        </div>
+
+        {/* Side panel: responders + alerts with clickable coordinates */}
+        <div className={`lg:w-72 lg:max-h-[500px] overflow-y-auto ${darkMode ? 'bg-gray-900' : 'bg-gray-50'} border-t lg:border-t-0 lg:border-l ${darkMode ? 'border-gray-800' : 'border-gray-200'}`}>
+          <div className="p-3">
+            <h3 className={`text-xs font-bold uppercase tracking-wide mb-2 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Active Alerts</h3>
+            {alerts.length === 0 ? (
+              <p className="text-xs text-gray-400 py-2">No active alerts</p>
+            ) : (
+              <div className="space-y-2 mb-4">
+                {alerts.map((alert) => {
+                  const coord = formatCoord(alert.latitude, alert.longitude);
+                  return (
+                    <button
+                      key={alert.id}
+                      onClick={() => focusOnPoint(alert.latitude!, alert.longitude!, alert.location || alert.emergency_type)}
+                      className={`w-full text-left p-2 rounded-lg border transition-all ${darkMode ? 'bg-gray-800 border-gray-700 hover:border-red-500/50 hover:bg-red-950/20' : 'bg-white border-gray-200 hover:border-red-400 hover:shadow-sm'}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className={`w-6 h-6 ${getAlertColor(alert.emergency_type)} rounded-full flex items-center justify-center shrink-0`}>
+                          {getAlertIcon(alert.emergency_type)}
+                        </div>
+                        <span className="text-xs font-bold truncate">{alert.location || alert.emergency_type}</span>
+                      </div>
+                      {coord && (
+                        <div className={`flex items-center gap-1 mt-1 text-[11px] ${darkMode ? 'text-red-400' : 'text-red-600'}`}>
+                          <MapPin className="w-3 h-3" />
+                          {coord}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            <h3 className={`text-xs font-bold uppercase tracking-wide mb-2 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Responders</h3>
+            {responders.length === 0 ? (
+              <p className="text-xs text-gray-400 py-2">No responders sharing location</p>
+            ) : (
+              <div className="space-y-2">
+                {responders.map((responder) => {
+                  const coord = formatCoord(responder.latitude, responder.longitude);
+                  return (
+                    <button
+                      key={responder.id}
+                      onClick={() => focusOnPoint(responder.latitude!, responder.longitude!, responder.name)}
+                      className={`w-full text-left p-2 rounded-lg border transition-all ${darkMode ? 'bg-gray-800 border-gray-700 hover:border-blue-500/50 hover:bg-blue-950/20' : 'bg-white border-gray-200 hover:border-blue-400 hover:shadow-sm'}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center shrink-0">
+                          <Navigation className="w-3 h-3 text-white" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold truncate">{responder.name}</p>
+                          {responder.phone && <p className={`text-[10px] ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>{responder.phone}</p>}
+                        </div>
+                      </div>
+                      {coord && (
+                        <div className={`flex items-center gap-1 mt-1 text-[11px] ${darkMode ? 'text-blue-400' : 'text-blue-600'}`}>
+                          <MapPin className="w-3 h-3" />
+                          {coord}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
